@@ -307,63 +307,130 @@ def badge(sc: "float | None"):
 
 
 # ─────────────────────────────────────────────────────────────
-# CSS
+# THEME TOKENS
 # ─────────────────────────────────────────────────────────────
-CSS = """
+THEMES = {
+    "🌙 Dark": {
+        "bg_page":       "#0d0f14",
+        "bg_card":       "#13161f",
+        "bg_sidebar":    "#13161f",
+        "bg_input":      "#1c2030",
+        "bg_table_head": "#1c2030",
+        "bg_row_hover":  "#1a1f2e",
+        "border":        "rgba(255,255,255,0.06)",
+        "border_input":  "rgba(255,255,255,0.10)",
+        "border_card":   "rgba(255,255,255,0.06)",
+        "border_hover":  "rgba(255,255,255,0.10)",
+        "text_primary":  "#f0f2f8",
+        "text_secondary":"#8892ab",
+        "text_muted":    "#4e5870",
+        "sidebar_text":  "#f0f2f8",
+        "topbar_grad":   "linear-gradient(135deg,#13161f,#1a1f2e)",
+        "hr":            "rgba(255,255,255,0.06)",
+        "scrollbar":     "rgba(255,255,255,0.10)",
+        "metric_bg":     "#13161f",
+        "metric_border": "rgba(255,255,255,0.06)",
+        # chart
+        "chart_bg":      "#13161f",
+        "chart_grid":    "rgba(255,255,255,0.06)",
+        "chart_tick":    "#8892ab",
+        "radar_bg":      "#13161f",
+        "chart_legend":  "rgba(0,0,0,0)",
+    },
+    "☀️ Light": {
+        "bg_page":       "#f4f6fc",
+        "bg_card":       "#ffffff",
+        "bg_sidebar":    "#ffffff",
+        "bg_input":      "#f0f2f9",
+        "bg_table_head": "#f0f2f9",
+        "bg_row_hover":  "#f8f9ff",
+        "border":        "rgba(0,0,0,0.07)",
+        "border_input":  "rgba(0,0,0,0.12)",
+        "border_card":   "rgba(0,0,0,0.07)",
+        "border_hover":  "rgba(79,143,255,0.35)",
+        "text_primary":  "#1a1f36",
+        "text_secondary":"#4a5068",
+        "text_muted":    "#8892ab",
+        "sidebar_text":  "#1a1f36",
+        "topbar_grad":   "linear-gradient(135deg,#ffffff,#f0f4ff)",
+        "hr":            "rgba(0,0,0,0.08)",
+        "scrollbar":     "rgba(0,0,0,0.15)",
+        "metric_bg":     "#ffffff",
+        "metric_border": "rgba(0,0,0,0.07)",
+        # chart
+        "chart_bg":      "#ffffff",
+        "chart_grid":    "rgba(0,0,0,0.06)",
+        "chart_tick":    "#4a5068",
+        "radar_bg":      "#ffffff",
+        "chart_legend":  "rgba(255,255,255,0)",
+    },
+}
+
+FONT = "DM Sans,sans-serif"
+
+
+def get_theme() -> dict:
+    """Return active theme tokens from session state."""
+    return THEMES[st.session_state.get("theme", "🌙 Dark")]
+
+
+def build_css(t: dict) -> str:
+    return f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
-html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
-.stApp{background:#0d0f14}
-section[data-testid="stSidebar"]{background:#13161f!important;border-right:1px solid #ffffff0f}
-section[data-testid="stSidebar"] *{color:#f0f2f8!important}
-section[data-testid="stSidebar"] .stSelectbox>div>div{background:#1c2030;border:1px solid #ffffff1a}
-header[data-testid="stHeader"]{background:transparent}
-.top-bar{background:linear-gradient(135deg,#13161f,#1a1f2e);border:1px solid #ffffff0f;border-radius:16px;padding:20px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}
-.brand-logo{width:44px;height:44px;background:linear-gradient(135deg,#4F8FFF,#00E5B8);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;color:#fff;font-size:15px;box-shadow:0 0 20px #4F8FFF33;float:left;margin-right:14px}
-.brand-title{font-family:'Syne',sans-serif;font-weight:700;font-size:18px;color:#f0f2f8}
-.brand-sub{font-size:11px;color:#4e5870;text-transform:uppercase;letter-spacing:.8px}
-.sbu-hero-name{font-family:'Syne',sans-serif;font-weight:800;font-size:28px;background:linear-gradient(90deg,#4F8FFF,#00E5B8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.sbu-hero-full{font-size:12px;color:#4e5870;margin-top:2px}
-.kpi-card{background:#13161f;border:1px solid #ffffff0f;border-radius:14px;padding:18px 18px 14px;border-top:3px solid;min-height:140px}
-.kpi-card:hover{border-color:#ffffff1a}
-.kpi-card-cat{font-size:10px;color:#4e5870;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
-.kpi-card-val{font-family:'Syne',sans-serif;font-weight:700;font-size:26px;line-height:1;margin-bottom:6px}
-.kpi-card-name{font-size:11.5px;color:#8892ab;margin-bottom:8px;line-height:1.3}
-.kpi-badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
-.badge-good{background:#22d3a520;color:#22d3a5}
-.badge-warn{background:#f59e0b20;color:#f59e0b}
-.badge-bad{background:#ef444420;color:#ef4444}
-.badge-na{background:#ffffff12;color:#4e5870}
-.section-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#4e5870;margin:24px 0 12px 0}
-[data-testid="stMetric"]{background:#13161f;border:1px solid #ffffff0f;border-radius:12px;padding:14px}
-[data-testid="stMetricValue"]{font-family:'Syne',sans-serif!important}
-[data-testid="stMetricLabel"]{font-size:11px!important;color:#4e5870!important}
-hr{border-color:#ffffff0f!important}
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#ffffff1a;border-radius:99px}
-.kpi-table-wrap{overflow-x:auto}
-table.kpi-table{width:100%;border-collapse:collapse;font-size:12.5px}
-table.kpi-table th{background:#1c2030;color:#4e5870;padding:10px 14px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #ffffff0f}
-table.kpi-table td{padding:10px 14px;border-bottom:1px solid #ffffff0a;color:#8892ab}
-table.kpi-table td:nth-child(2){color:#f0f2f8;font-weight:500}
-table.kpi-table tr:hover td{background:#1a1f2e}
+html,body,[class*="css"]{{font-family:'DM Sans',sans-serif}}
+.stApp{{background:{t["bg_page"]}!important}}
+section[data-testid="stSidebar"]{{background:{t["bg_sidebar"]}!important;border-right:1px solid {t["border"]}}}
+section[data-testid="stSidebar"] *{{color:{t["sidebar_text"]}!important}}
+section[data-testid="stSidebar"] .stSelectbox>div>div{{background:{t["bg_input"]};border:1px solid {t["border_input"]}}}
+header[data-testid="stHeader"]{{background:transparent}}
+.top-bar{{background:{t["topbar_grad"]};border:1px solid {t["border"]};border-radius:16px;padding:20px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}}
+.brand-logo{{width:44px;height:44px;background:linear-gradient(135deg,#4F8FFF,#00E5B8);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;color:#fff;font-size:15px;box-shadow:0 0 20px #4F8FFF33;float:left;margin-right:14px}}
+.brand-title{{font-family:'Syne',sans-serif;font-weight:700;font-size:18px;color:{t["text_primary"]}}}
+.brand-sub{{font-size:11px;color:{t["text_muted"]};text-transform:uppercase;letter-spacing:.8px}}
+.sbu-hero-name{{font-family:'Syne',sans-serif;font-weight:800;font-size:28px;background:linear-gradient(90deg,#4F8FFF,#00E5B8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
+.sbu-hero-full{{font-size:12px;color:{t["text_muted"]};margin-top:2px}}
+.kpi-card{{background:{t["bg_card"]};border:1px solid {t["border_card"]};border-radius:14px;padding:18px 18px 14px;border-top:3px solid;min-height:140px;transition:all .15s}}
+.kpi-card:hover{{border-color:{t["border_hover"]}}}
+.kpi-card-cat{{font-size:10px;color:{t["text_muted"]};text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}}
+.kpi-card-val{{font-family:'Syne',sans-serif;font-weight:700;font-size:26px;line-height:1;margin-bottom:6px}}
+.kpi-card-name{{font-size:11.5px;color:{t["text_secondary"]};margin-bottom:8px;line-height:1.3}}
+.kpi-badge{{display:inline-block;padding:2px 10px;border-radius:99px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}}
+.badge-good{{background:#22d3a520;color:#22d3a5}}
+.badge-warn{{background:#f59e0b20;color:#f59e0b}}
+.badge-bad{{background:#ef444420;color:#ef4444}}
+.badge-na{{background:{t["border"]};color:{t["text_muted"]}}}
+.section-title{{font-family:'Syne',sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:{t["text_muted"]};margin:24px 0 12px 0}}
+[data-testid="stMetric"]{{background:{t["metric_bg"]};border:1px solid {t["metric_border"]};border-radius:12px;padding:14px}}
+[data-testid="stMetricValue"]{{font-family:'Syne',sans-serif!important;color:{t["text_primary"]}!important}}
+[data-testid="stMetricLabel"]{{font-size:11px!important;color:{t["text_muted"]}!important}}
+hr{{border-color:{t["hr"]}!important}}
+::-webkit-scrollbar{{width:5px;height:5px}}
+::-webkit-scrollbar-track{{background:transparent}}
+::-webkit-scrollbar-thumb{{background:{t["scrollbar"]};border-radius:99px}}
+.kpi-table-wrap{{overflow-x:auto}}
+table.kpi-table{{width:100%;border-collapse:collapse;font-size:12.5px}}
+table.kpi-table th{{background:{t["bg_table_head"]};color:{t["text_muted"]};padding:10px 14px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid {t["border"]}}}
+table.kpi-table td{{padding:10px 14px;border-bottom:1px solid {t["border"]};color:{t["text_secondary"]}}}
+table.kpi-table td:nth-child(2){{color:{t["text_primary"]};font-weight:500}}
+table.kpi-table tr:hover td{{background:{t["bg_row_hover"]}}}
+p.date-label{{font-size:12px;color:{t["text_muted"]};margin-bottom:12px}}
 </style>
 """
 
-# ─────────────────────────────────────────────────────────────
-# CHART CONSTANTS
-# ─────────────────────────────────────────────────────────────
-BG = "#13161f"; GRID = "rgba(255,255,255,0.06)"; TICK = "#8892ab"; FONT = "DM Sans,sans-serif"
 
-def _base(h=300):
+# ─────────────────────────────────────────────────────────────
+# CHART BASE (theme-aware)
+# ─────────────────────────────────────────────────────────────
+def _base(h=300) -> dict:
+    t = get_theme()
     return dict(
-        paper_bgcolor=BG, plot_bgcolor=BG,
-        font=dict(family=FONT, color=TICK, size=11),
+        paper_bgcolor=t["chart_bg"], plot_bgcolor=t["chart_bg"],
+        font=dict(family=FONT, color=t["chart_tick"], size=11),
         height=h, margin=dict(l=10, r=10, t=36, b=10),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-        xaxis=dict(gridcolor=GRID, color=TICK, showline=False),
-        yaxis=dict(gridcolor=GRID, color=TICK, showline=False),
+        legend=dict(bgcolor=t["chart_legend"], font=dict(size=11, color=t["chart_tick"])),
+        xaxis=dict(gridcolor=t["chart_grid"], color=t["chart_tick"], showline=False),
+        yaxis=dict(gridcolor=t["chart_grid"], color=t["chart_tick"], showline=False),
     )
 
 
@@ -371,6 +438,7 @@ def _base(h=300):
 # CHARTS
 # ─────────────────────────────────────────────────────────────
 def make_trend(df, kpi, d0, d1):
+    t   = get_theme()
     row = df[df["kpi_name"] == kpi]
     if row.empty: return go.Figure()
     row = row.iloc[0]
@@ -392,13 +460,14 @@ def make_trend(df, kpi, d0, d1):
                       annotation_text=f"Baseline {bv:.2f} {u}",
                       annotation_font=dict(color="#FF6B6B", size=10))
     lay = _base(300)
-    lay["title"] = dict(text=kpi[:60], font=dict(size=12, color=TICK))
+    lay["title"] = dict(text=kpi[:60], font=dict(size=12, color=t["chart_tick"]))
     lay["yaxis"]["ticksuffix"] = f" {u}"
     fig.update_layout(**lay)
     return fig
 
 
 def make_radar(df):
+    t    = get_theme()
     grp: dict = {}
     for _, r in df.iterrows():
         s = score(r["kpi_name"], r["actual"])
@@ -414,18 +483,21 @@ def make_radar(df):
         line=dict(color="#4F8FFF", width=2), marker=dict(color="#4F8FFF", size=5),
     ))
     fig.update_layout(
-        polar=dict(bgcolor=BG,
-                   radialaxis=dict(visible=True, range=[0, 100], gridcolor=GRID,
-                                   tickfont=dict(size=9, color=TICK), ticksuffix="%"),
-                   angularaxis=dict(color=TICK, gridcolor=GRID,
-                                    tickfont=dict(size=10, color=TICK))),
-        paper_bgcolor=BG, font=dict(family=FONT, color=TICK),
+        polar=dict(
+            bgcolor=t["radar_bg"],
+            radialaxis=dict(visible=True, range=[0, 100], gridcolor=t["chart_grid"],
+                            tickfont=dict(size=9, color=t["chart_tick"]), ticksuffix="%"),
+            angularaxis=dict(color=t["chart_tick"], gridcolor=t["chart_grid"],
+                             tickfont=dict(size=10, color=t["chart_tick"])),
+        ),
+        paper_bgcolor=t["chart_bg"], font=dict(family=FONT, color=t["chart_tick"]),
         height=300, margin=dict(l=20, r=20, t=30, b=20), showlegend=False,
     )
     return fig
 
 
 def make_bar(df):
+    t    = get_theme()
     rows = df[df["actual"].notna()].copy()
     if rows.empty: return go.Figure()
     labs = [k[:38] for k in rows["kpi_name"]]
@@ -441,18 +513,21 @@ def make_bar(df):
                          marker_line=dict(color="#00E5B8", width=1)))
     h = max(300, len(rows) * 30)
     fig.update_layout(
-        barmode="group", paper_bgcolor=BG, plot_bgcolor=BG,
-        font=dict(family=FONT, color=TICK, size=11), height=h,
+        barmode="group",
+        paper_bgcolor=t["chart_bg"], plot_bgcolor=t["chart_bg"],
+        font=dict(family=FONT, color=t["chart_tick"], size=11), height=h,
         margin=dict(l=10, r=20, t=36, b=10),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
-        xaxis=dict(gridcolor=GRID, color=TICK),
-        yaxis=dict(gridcolor=GRID, color=TICK, automargin=True, tickfont=dict(size=10)),
-        title=dict(text="Baseline vs Actual", font=dict(size=12, color=TICK)),
+        legend=dict(bgcolor=t["chart_legend"], font=dict(color=t["chart_tick"])),
+        xaxis=dict(gridcolor=t["chart_grid"], color=t["chart_tick"]),
+        yaxis=dict(gridcolor=t["chart_grid"], color=t["chart_tick"],
+                   automargin=True, tickfont=dict(size=10)),
+        title=dict(text="Baseline vs Actual", font=dict(size=12, color=t["chart_tick"])),
     )
     return fig
 
 
 def make_heatmap(df, kpi, d0, d1):
+    t   = get_theme()
     row = df[df["kpi_name"] == kpi]
     if row.empty: return go.Figure()
     row = row.iloc[0]
@@ -466,19 +541,21 @@ def make_heatmap(df, kpi, d0, d1):
         colorscale=[[0,"#ef4444"],[0.5,"#f59e0b"],[1,"#22d3a5"]],
         hovertemplate=f"%{{x}}: %{{z:.2f}} {u}<extra></extra>",
         showscale=True,
-        colorbar=dict(tickfont=dict(color=TICK, size=10), outlinewidth=0, bgcolor=BG),
+        colorbar=dict(tickfont=dict(color=t["chart_tick"], size=10),
+                      outlinewidth=0, bgcolor=t["chart_bg"]),
     ))
     fig.update_layout(
-        paper_bgcolor=BG, plot_bgcolor=BG,
-        font=dict(family=FONT, color=TICK, size=11),
+        paper_bgcolor=t["chart_bg"], plot_bgcolor=t["chart_bg"],
+        font=dict(family=FONT, color=t["chart_tick"], size=11),
         height=130, margin=dict(l=10, r=10, t=10, b=50),
-        xaxis=dict(color=TICK, tickangle=-45, tickfont=dict(size=9)),
-        yaxis=dict(color=TICK, tickfont=dict(size=9)),
+        xaxis=dict(color=t["chart_tick"], tickangle=-45, tickfont=dict(size=9)),
+        yaxis=dict(color=t["chart_tick"], tickfont=dict(size=9)),
     )
     return fig
 
 
 def make_donut(df):
+    t    = get_theme()
     grp: dict = {}
     for _, r in df.iterrows():
         s = score(r["kpi_name"], r["actual"])
@@ -491,15 +568,17 @@ def make_donut(df):
     fig = go.Figure(go.Pie(
         labels=[l.split(" & ")[0] for l in labs], values=vals, hole=0.65,
         marker=dict(colors=[c+"aa" for c in colors], line=dict(color=colors, width=2)),
-        textfont=dict(size=11, color="#f0f2f8"),
+        textfont=dict(size=11, color=t["text_primary"]),
         hovertemplate="%{label}: %{value:.1f}%<extra></extra>",
     ))
     fig.update_layout(
-        paper_bgcolor=BG, font=dict(family=FONT, color=TICK, size=11),
+        paper_bgcolor=t["chart_bg"],
+        font=dict(family=FONT, color=t["chart_tick"], size=11),
         height=280, margin=dict(l=10, r=10, t=10, b=10),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10, color=TICK)),
+        legend=dict(bgcolor=t["chart_legend"],
+                    font=dict(size=10, color=t["chart_tick"])),
         annotations=[dict(text="Score", x=0.5, y=0.5,
-                          font=dict(size=13, color="#8892ab"), showarrow=False)],
+                          font=dict(size=13, color=t["text_muted"]), showarrow=False)],
     )
     return fig
 
@@ -508,11 +587,32 @@ def make_donut(df):
 # MAIN
 # ─────────────────────────────────────────────────────────────
 def main():
-    st.markdown(CSS, unsafe_allow_html=True)
+    # ── INIT SESSION STATE ────────────────────────────────────
+    if "theme" not in st.session_state:
+        st.session_state["theme"] = "🌙 Dark"
+
+    # Inject CSS for current theme FIRST (before any rendering)
+    t = get_theme()
+    st.markdown(build_css(t), unsafe_allow_html=True)
 
     # ── SIDEBAR ──────────────────────────────────────────────
     with st.sidebar:
         st.markdown("### 🏭 AKIJ Resource")
+        st.markdown("---")
+
+        # ── THEME TOGGLE ─────────────────────────────────────
+        st.markdown("**Appearance**")
+        chosen = st.radio(
+            "Theme",
+            options=list(THEMES.keys()),
+            index=list(THEMES.keys()).index(st.session_state["theme"]),
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        if chosen != st.session_state["theme"]:
+            st.session_state["theme"] = chosen
+            st.rerun()        # re-render with new theme instantly
+
         st.markdown("---")
         st.markdown("**Select SBU**")
         sbu = st.selectbox(
@@ -520,7 +620,7 @@ def main():
             format_func=lambda k: f"{k}  —  {SBU_CONFIG[k]['full_name'][:28]}",
             label_visibility="collapsed",
         )
-        cfg  = SBU_CONFIG[sbu]
+        cfg   = SBU_CONFIG[sbu]
         sname = cfg["sheet"]
 
         st.markdown("---")
@@ -548,10 +648,13 @@ def main():
             st.rerun()
 
         st.markdown(
-            "<p style='font-size:10px;color:#4e5870;text-align:center;margin-top:16px'>"
+            f"<p style='font-size:10px;color:{t['text_muted']};text-align:center;margin-top:16px'>"
             "AKIJ Resource · Production Planning<br>KPI Intelligence · Live Google Sheets</p>",
             unsafe_allow_html=True,
         )
+
+    # Re-read theme after potential sidebar change
+    t = get_theme()
 
     # ── HEADER ───────────────────────────────────────────────
     st.markdown(f"""
@@ -588,12 +691,12 @@ def main():
     avg_sc     = np.mean(valid) * 100 if valid else 0
 
     st.markdown(
-        f"<p style='font-size:12px;color:#4e5870;margin-bottom:12px'>"
+        f"<p style='font-size:12px;color:{t['text_muted']};margin-bottom:12px'>"
         f"📅 {d0.strftime('%d %b %Y')} → {d1.strftime('%d %b %Y')}"
         f"  |  {len(view)} KPIs</p>",
         unsafe_allow_html=True,
     )
-    c1,c2,c3,c4,c5 = st.columns(5)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Overall Score",  f"{avg_sc:.1f}%")
     c2.metric("KPIs Tracked",   len(view))
     c3.metric("✅ On Track",    sum(1 for s in valid if s >= 0.75))
@@ -608,9 +711,9 @@ def main():
         chunk = view.iloc[i:i+COLS]
         cols  = st.columns(len(chunk))
         for col, (_, r) in zip(cols, chunk.iterrows()):
-            sc            = score(r["kpi_name"], r["actual"])
+            sc               = score(r["kpi_name"], r["actual"])
             blabel, bcol, bcls = badge(sc)
-            val_str       = fmt(r["kpi_name"], r["actual"])
+            val_str          = fmt(r["kpi_name"], r["actual"])
             with col:
                 st.markdown(f"""
                 <div class="kpi-card" style="border-top-color:{bcol}">
@@ -624,7 +727,8 @@ def main():
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # ── TREND + RADAR ─────────────────────────────────────────
-    st.markdown('<div class="section-title">Trend & Category Radar</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Trend & Category Radar</div>',
+                unsafe_allow_html=True)
     ct, cr = st.columns([3, 2])
     kpis_daily = [
         r["kpi_name"] for _, r in view.iterrows()
@@ -632,9 +736,10 @@ def main():
     ]
     with ct:
         if kpis_daily:
-            sel_t = st.selectbox("KPI (trend)", kpis_daily, key="t", label_visibility="collapsed")
-            st.plotly_chart(make_trend(view, sel_t, d0, d1), use_container_width=True,
-                            config={"displayModeBar": False})
+            sel_t = st.selectbox("KPI (trend)", kpis_daily, key="t",
+                                 label_visibility="collapsed")
+            st.plotly_chart(make_trend(view, sel_t, d0, d1),
+                            use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("No daily data for selected range.")
     with cr:
@@ -646,25 +751,29 @@ def main():
                 unsafe_allow_html=True)
     cb, cd = st.columns([3, 2])
     with cb:
-        st.plotly_chart(make_bar(view), use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(make_bar(view), use_container_width=True,
+                        config={"displayModeBar": False})
     with cd:
-        st.plotly_chart(make_donut(view), use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(make_donut(view), use_container_width=True,
+                        config={"displayModeBar": False})
 
     # ── HEATMAP ───────────────────────────────────────────────
     if kpis_daily:
         st.markdown('<div class="section-title">Daily Performance Heatmap</div>',
                     unsafe_allow_html=True)
-        sel_h = st.selectbox("KPI (heatmap)", kpis_daily, key="h", label_visibility="collapsed")
-        st.plotly_chart(make_heatmap(view, sel_h, d0, d1), use_container_width=True,
-                        config={"displayModeBar": False})
+        sel_h = st.selectbox("KPI (heatmap)", kpis_daily, key="h",
+                             label_visibility="collapsed")
+        st.plotly_chart(make_heatmap(view, sel_h, d0, d1),
+                        use_container_width=True, config={"displayModeBar": False})
 
     # ── DETAIL TABLE ─────────────────────────────────────────
-    st.markdown('<div class="section-title">KPI Detail Table</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">KPI Detail Table</div>',
+                unsafe_allow_html=True)
     tbody = ""
     for _, r in view.iterrows():
-        sc            = score(r["kpi_name"], r["actual"])
+        sc               = score(r["kpi_name"], r["actual"])
         blabel, bcol, bcls = badge(sc)
-        ccol = CRITERIA_COLORS.get(r["criteria"], "#4e5870")
+        ccol = CRITERIA_COLORS.get(r["criteria"], t["text_muted"])
         tbody += (
             f"<tr>"
             f"<td><span style='color:{ccol};font-size:10px'>{r['criteria']}</span></td>"
@@ -683,8 +792,8 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown(
-        "<br><p style='text-align:center;font-size:11px;color:#ffffff'>"
-        "AKIJ Resource · Production Planning KPI Intelligence · Created By: Md. Ariful Islam Ratul (MTO - Operations) </p>",
+        f"<br><p style='text-align:center;font-size:11px;color:{t['text_muted']}'>"
+        "AKIJ Resource · Production Planning KPI Intelligence · Google Sheets Live</p>",
         unsafe_allow_html=True,
     )
 

@@ -683,8 +683,8 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown(
-        "<br><p style='text-align:center;font-size:11px;color:#4e5870'>"
-        "AKIJ Resource · Production Planning KPI Intelligence · Google Sheets Live</p>",
+        "<br><p style='text-align:center;font-size:11px;color:#ffffff'>"
+        "AKIJ Resource · Production Planning KPI Intelligence · Created By: Md. Ariful Islam Ratul (MTO - Operations) </p>",
         unsafe_allow_html=True,
     )
 

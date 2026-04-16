@@ -353,51 +353,68 @@ def try_parse_date(s: str):
 # VALUE FORMATTING
 # ─────────────────────────────────────────────────────────────
 def fmt_value(kpi_name: str, val: float | None) -> str:
-    """Format a raw sheet value for display."""
-    if val is None:
+    """
+    Format a raw sheet value for display.
+    Rule priority:
+      1. None / NaN  → "—"
+      2. BDT KPIs    → ৳ formatted (NO ×100, values are raw like 1507935)
+      3. Hours KPIs  → X.X hrs    (NO ×100, values are raw like 17.3)
+      4. All others  → percentage, values stored as decimals (0.34 → 34.3%)
+    """
+    if val is None or (isinstance(val, float) and np.isnan(val)):
         return "—"
 
     name = kpi_name.lower()
 
-    # BDT monetary
-    if any(k.lower() in name for k in ["cost (bdt)", "idle hours × fixed"]):
+    # ── BDT monetary (check FIRST — these have large raw values like 1,507,935)
+    is_bdt = ("cost (bdt)" in name) or ("idle hours" in name and "fixed" in name)
+    if is_bdt:
         if abs(val) >= 1_000_000:
-            return f"৳{val/1_000_000:.2f}M"
+            return f"৳{val / 1_000_000:.2f}M"
         if abs(val) >= 1_000:
-            return f"৳{val/1_000:.1f}K"
+            return f"৳{val / 1_000:.1f}K"
         return f"৳{val:,.0f}"
 
-    # Hours
+    # ── Raw hours (check SECOND — values like 17.3, 86.0, 59.25)
     if "hours/month" in name:
         return f"{val:.1f} hrs"
 
-    # Percentage KPIs — values are stored as decimals (0.87 = 87%)
-    # Detect: if absolute value ≤ 2 treat as decimal ratio → multiply by 100
-    if abs(val) <= 2.0:
-        return f"{val * 100:.1f}%"
-
-    # Values > 2 are already in raw units (hours, BDT) — shouldn't reach here
-    return f"{val:.2f}"
+    # ── All remaining KPIs are % stored as decimals (0.xx)
+    #    Multiply by 100 for display
+    return f"{val * 100:.1f}%"
 
 
 def score_kpi(kpi_name: str, actual: float | None) -> float | None:
     """
-    Return a 0–1 performance score.
-    Handles lower-is-better vs higher-is-better.
+    Return a 0–1 performance score for status badges.
+    BDT / Hours KPIs scored against baseline reference values.
+    Percentage KPIs stored as decimals (0.xx), scored directly.
     """
-    if actual is None:
+    if actual is None or (isinstance(actual, float) and np.isnan(actual)):
         return None
-    name = kpi_name
+
+    name = kpi_name.lower()
     is_lower_better = any(k.lower() in name.lower() for k in LOWER_IS_BETTER)
 
-    # For percentage KPIs stored as decimals (≤2), clamp to [0,1]
+    # BDT cost KPIs — lower is better, normalise against rough thresholds
+    is_bdt   = ("cost (bdt)" in name) or ("idle hours" in name and "fixed" in name)
+    is_hours = "hours/month" in name
+
+    if is_bdt:
+        # Score 1.0 if zero cost, 0.0 if >= 5M BDT
+        return max(0.0, 1.0 - min(1.0, actual / 5_000_000))
+
+    if is_hours:
+        # Target is <20 hrs. Score 1.0 at 0 hrs, 0.0 at 100+ hrs
+        return max(0.0, 1.0 - min(1.0, actual / 100.0))
+
+    # All percentage KPIs — stored as decimals (0.xx), range roughly [0, 1]
     if is_lower_better:
-        # Score = 1 when value is 0, score = 0 when value >= 1 (100%)
-        clamped = max(0.0, min(1.0, abs(actual)))
-        return 1.0 - clamped
+        # Score = 1 when 0%, score = 0 when 100%
+        return max(0.0, 1.0 - min(1.0, abs(actual)))
     else:
-        clamped = max(0.0, min(1.5, abs(actual)))
-        return min(1.0, clamped)
+        # Score = value itself, capped at 1
+        return min(1.0, max(0.0, actual))
 
 
 def status_from_score(score: float | None):
@@ -449,8 +466,18 @@ def chart_trend(df: pd.DataFrame, selected_kpi: str, date_from, date_to) -> go.F
 
     dates = sorted(daily.keys())
     vals  = [daily[d] for d in dates]
-    display_vals = [v * 100 if v is not None and abs(v) <= 2 else v for v in vals]
-    unit = "%" if vals and abs(vals[0]) <= 2 else ""
+    is_bdt_kpi   = ("cost (bdt)" in selected_kpi.lower()) or ("idle hours" in selected_kpi.lower() and "fixed" in selected_kpi.lower())
+    is_hours_kpi = "hours/month" in selected_kpi.lower()
+
+    if is_bdt_kpi:
+        display_vals = [v / 1_000 if v is not None else None for v in vals]  # show in K
+        unit = "K BDT"
+    elif is_hours_kpi:
+        display_vals = vals
+        unit = " hrs"
+    else:
+        display_vals = [v * 100 if v is not None else None for v in vals]
+        unit = "%"
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -465,8 +492,13 @@ def chart_trend(df: pd.DataFrame, selected_kpi: str, date_from, date_to) -> go.F
     ))
 
     # Baseline reference line
-    if row["baseline"] is not None:
-        bv = row["baseline"] * 100 if abs(row["baseline"]) <= 2 else row["baseline"]
+    if row["baseline"] is not None and not (isinstance(row["baseline"], float) and np.isnan(row["baseline"])):
+        if is_bdt_kpi:
+            bv = row["baseline"] / 1_000
+        elif is_hours_kpi:
+            bv = row["baseline"]
+        else:
+            bv = row["baseline"] * 100
         fig.add_hline(
             y=bv, line_dash="dot", line_color="#FF6B6B", line_width=1.5,
             annotation_text=f"Baseline {bv:.1f}{unit}",
@@ -482,9 +514,9 @@ def chart_trend(df: pd.DataFrame, selected_kpi: str, date_from, date_to) -> go.F
 def chart_radar(df: pd.DataFrame) -> go.Figure:
     groups = df.groupby("criteria").apply(
         lambda g: np.nanmean([
-            s * 100 for s in g["actual"].apply(
-                lambda a: score_kpi(g.iloc[0]["kpi_name"], a)
-            ) if s is not None
+            s * 100
+            for s in [score_kpi(row["kpi_name"], row["actual"]) for _, row in g.iterrows()]
+            if s is not None
         ]) if len(g) else 0
     ).reset_index()
     groups.columns = ["criteria", "score"]
@@ -526,16 +558,21 @@ def chart_bar_baseline_actual(df: pd.DataFrame) -> go.Figure:
         valid = df[df["actual"].notna()].copy()
 
     # Convert to display %
-    def to_pct(row, col):
+    def to_display(row, col):
         v = row[col]
-        if v is None or pd.isna(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
             return None
-        if any(k.lower() in row["kpi_name"].lower() for k in BDT_KPIS + HOURS_KPIS):
-            return v
-        return v * 100 if abs(v) <= 2 else v
+        name = row["kpi_name"].lower()
+        is_bdt   = ("cost (bdt)" in name) or ("idle hours" in name and "fixed" in name)
+        is_hours = "hours/month" in name
+        if is_bdt:
+            return v / 1_000          # show in K BDT
+        if is_hours:
+            return v                  # raw hours
+        return v * 100                # decimal → %
 
-    valid["actual_disp"]   = valid.apply(lambda r: to_pct(r, "actual"), axis=1)
-    valid["baseline_disp"] = valid.apply(lambda r: to_pct(r, "baseline"), axis=1)
+    valid["actual_disp"]   = valid.apply(lambda r: to_display(r, "actual"), axis=1)
+    valid["baseline_disp"] = valid.apply(lambda r: to_display(r, "baseline"), axis=1)
 
     labels = [k[:38] for k in valid["kpi_name"]]
 
@@ -585,8 +622,18 @@ def chart_heatmap(df: pd.DataFrame, selected_kpi: str, date_from, date_to) -> go
 
     dates = sorted(daily.keys())
     vals  = [daily[d] for d in dates]
-    disp_vals = [v * 100 if v is not None and abs(v) <= 2 else v for v in vals]
-    unit = "%" if vals and abs(vals[0]) <= 2 else ""
+    is_bdt_h   = ("cost (bdt)" in selected_kpi.lower()) or ("idle hours" in selected_kpi.lower() and "fixed" in selected_kpi.lower())
+    is_hours_h = "hours/month" in selected_kpi.lower()
+
+    if is_bdt_h:
+        disp_vals = [v / 1_000 if v is not None else None for v in vals]
+        unit = "K BDT"
+    elif is_hours_h:
+        disp_vals = vals
+        unit = " hrs"
+    else:
+        disp_vals = [v * 100 if v is not None else None for v in vals]
+        unit = "%"
 
     fig = go.Figure(go.Heatmap(
         x=[str(d) for d in dates],
@@ -874,7 +921,7 @@ def main():
     st.markdown(
         '<p style="text-align:center;font-size:11px;color:#4e5870">'
         'AKIJ Resource Production Planning KPI Intelligence &nbsp;|&nbsp; '
-        'Created By: Md. Ariful Islam (UFLDP Management Trainee Officer - Operations) &nbsp;|&nbsp; '
+        ' Created By: Md. Ariful Islam (UFLDP Management Trainee Officer - Operations)  &nbsp;|&nbsp; '
         'Built for Operations Planning</p>',
         unsafe_allow_html=True,
     )

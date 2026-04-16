@@ -1,18 +1,12 @@
 """
 AKIJ Resource — Production Planning KPI Dashboard
-Streamlit App | app.py
+Streamlit App | app.py  (v3 — all formatting fixes applied)
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import gspread
-from google.oauth2.service_account import Credentials
-import json
-import re
 from datetime import datetime, date
 
 # ─────────────────────────────────────────────────────────────
@@ -31,14 +25,14 @@ st.set_page_config(
 SHEET_ID = "1mv4TUi-JPD2AZBKssDoPmGgzUzGIIbTIKRAz0wjqOFY"
 
 SBU_CONFIG = {
-    "AIL":         {"full_name": "Akij Ispat Ltd.",                              "sheet": "AIL"},
-    "AAFL":        {"full_name": "Akij Agro Feed Ltd.",                          "sheet": "AAFL"},
-    "ACCL":        {"full_name": "Akij Cement Company Ltd.",                     "sheet": "ACCL"},
+    "AIL":         {"full_name": "Akij Ispat Ltd.",                             "sheet": "AIL"},
+    "AAFL":        {"full_name": "Akij Agro Feed Ltd.",                         "sheet": "AAFL"},
+    "ACCL":        {"full_name": "Akij Cement Company Ltd.",                    "sheet": "ACCL"},
     "AEL (Flour)": {"full_name": "Akij Essential Flour Mill",                   "sheet": "AEL (Flour)"},
     "AEL (Rice)":  {"full_name": "Akij Essential Rice Mill",                    "sheet": "AEL (Rice)"},
-    "APFIL":       {"full_name": "Akij Poly Fibre Industries Ltd.",              "sheet": "APFIL"},
-    "ABSL":        {"full_name": "Akij Building Solutions Ltd.",                 "sheet": "ABSL"},
-    "ARMCL-01":    {"full_name": "Akij Ready Mix Concrete Ltd. - Narayanganj",  "sheet": "ARMCL - 01"},
+    "APFIL":       {"full_name": "Akij Poly Fibre Industries Ltd.",             "sheet": "APFIL"},
+    "ABSL":        {"full_name": "Akij Building Solutions Ltd.",                "sheet": "ABSL"},
+    "ARMCL-01":    {"full_name": "Akij Ready Mix Concrete Ltd. - Narayanganj", "sheet": "ARMCL - 01"},
 }
 
 CRITERIA_COLORS = {
@@ -49,880 +43,648 @@ CRITERIA_COLORS = {
     "Process & Culture":               "#FFB347",
 }
 
-# KPIs where LOWER value = BETTER performance
-LOWER_IS_BETTER = [
-    "Reduce Downtime (%)",
-    "Downtime Cost (BDT)",
-    "Breakdown Hours/Month",
-    "Idle Hours × Fixed Cost per Hour",
-    "Production Loss due to Planning Error (%)",
-    "Idle Time due to Material Shortage (%)",
-    "Changeover Time Reduction (%)",
-]
+# Exact lowercase KPI names where LOWER = BETTER
+LOWER_IS_BETTER = {
+    "reduce downtime (%)",
+    "downtime cost (bdt)",
+    "breakdown hours/month",
+    "idle hours × fixed cost per hour",
+    "production loss due to planning error (%)",
+    "idle time due to material shortage (%)",
+    "changeover time reduction (%)",
+}
 
-# KPIs that are purely monetary (show as BDT, no × 100)
-BDT_KPIS = [
-    "Downtime Cost (BDT)",
-    "Idle Hours × Fixed Cost per Hour",
-]
+# Exact lowercase KPI names that are raw BDT monetary values (never ×100)
+BDT_NAMES = {
+    "downtime cost (bdt)",
+    "idle hours × fixed cost per hour",
+}
 
-# KPIs that are raw hours
-HOURS_KPIS = ["Breakdown Hours/Month"]
+# Exact lowercase KPI names that are raw hours (never ×100)
+HOURS_NAMES = {
+    "breakdown hours/month",
+}
 
 
 # ─────────────────────────────────────────────────────────────
-# STYLING
+# VALUE TYPE HELPERS
 # ─────────────────────────────────────────────────────────────
-def inject_css():
-    st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+def is_bdt(kpi: str) -> bool:
+    return kpi.lower() in BDT_NAMES
 
-    html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+def is_hours(kpi: str) -> bool:
+    return kpi.lower() in HOURS_NAMES
 
-    /* Main background */
-    .stApp { background: #0d0f14; }
+def is_pct(kpi: str) -> bool:
+    return not is_bdt(kpi) and not is_hours(kpi)
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: #13161f !important;
-        border-right: 1px solid #ffffff0f;
-    }
-    section[data-testid="stSidebar"] * { color: #f0f2f8 !important; }
-    section[data-testid="stSidebar"] .stSelectbox > div > div {
-        background: #1c2030; border: 1px solid #ffffff1a; color: #f0f2f8;
-    }
 
-    /* Hide default header */
-    header[data-testid="stHeader"] { background: transparent; }
+# ─────────────────────────────────────────────────────────────
+# SAFE FLOAT  ←  THE CRITICAL FIX
+# ─────────────────────────────────────────────────────────────
+def safe_float(v) -> "float | None":
+    """
+    Parse a raw cell value to float.
 
-    /* Top bar */
-    .top-bar {
-        background: linear-gradient(135deg, #13161f 0%, #1a1f2e 100%);
-        border: 1px solid #ffffff0f;
-        border-radius: 16px;
-        padding: 20px 28px;
-        margin-bottom: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .brand-logo {
-        width: 44px; height: 44px;
-        background: linear-gradient(135deg, #4F8FFF, #00E5B8);
-        border-radius: 12px;
-        display: flex; align-items: center; justify-content: center;
-        font-family: 'Syne', sans-serif; font-weight: 800;
-        color: white; font-size: 15px;
-        box-shadow: 0 0 20px #4F8FFF33;
-        float: left; margin-right: 14px;
-    }
-    .brand-text .brand-title {
-        font-family: 'Syne', sans-serif; font-weight: 700;
-        font-size: 18px; color: #f0f2f8; line-height: 1.2;
-    }
-    .brand-text .brand-sub {
-        font-size: 11px; color: #4e5870;
-        text-transform: uppercase; letter-spacing: 0.8px;
-    }
-    .sbu-hero { text-align: right; }
-    .sbu-hero-name {
-        font-family: 'Syne', sans-serif; font-weight: 800; font-size: 28px;
-        background: linear-gradient(90deg, #4F8FFF, #00E5B8);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    }
-    .sbu-hero-full { font-size: 12px; color: #4e5870; margin-top: 2px; }
+    KEY BEHAVIOUR:
+    Google Sheets GViz CSV export converts cells that are
+    formatted as % in the sheet into strings like "11.83%".
+    openpyxl / Excel returns them as raw decimals 0.1183.
 
-    /* KPI Cards */
-    .kpi-card {
-        background: #13161f;
-        border: 1px solid #ffffff0f;
-        border-radius: 14px;
-        padding: 18px 18px 14px;
-        border-top: 3px solid;
-        height: 140px;
-        transition: all 0.2s;
-    }
-    .kpi-card:hover { border-color: #ffffff1a; transform: translateY(-2px); }
-    .kpi-card-criteria {
-        font-size: 10px; color: #4e5870;
-        text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;
-    }
-    .kpi-card-value {
-        font-family: 'Syne', sans-serif; font-weight: 700;
-        font-size: 26px; line-height: 1; margin-bottom: 6px;
-    }
-    .kpi-card-name { font-size: 11.5px; color: #8892ab; margin-bottom: 8px; line-height: 1.3; }
-    .kpi-badge {
-        display: inline-block;
-        padding: 2px 10px; border-radius: 99px;
-        font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
-    }
-    .badge-good { background: #22d3a520; color: #22d3a5; }
-    .badge-warn { background: #f59e0b20; color: #f59e0b; }
-    .badge-bad  { background: #ef444420; color: #ef4444; }
-    .badge-na   { background: #ffffff12; color: #4e5870; }
+    We MUST detect the "%" suffix and divide by 100 so every
+    value stored in the dataframe is always the raw decimal form:
+        "11.83%"  →  0.1183
+        "65.45%"  →  0.6545
+        "1507935" →  1507935  (BDT, no change)
+        "17.31"   →  17.31    (hours, no change)
+    """
+    if v is None:
+        return None
 
-    /* Section titles */
-    .section-title {
-        font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 600;
-        text-transform: uppercase; letter-spacing: 1px; color: #4e5870;
-        margin: 24px 0 12px 0;
-    }
+    s = str(v).strip()
 
-    /* Metric override */
-    [data-testid="stMetric"] {
-        background: #13161f; border: 1px solid #ffffff0f;
-        border-radius: 12px; padding: 14px;
-    }
-    [data-testid="stMetricValue"] { font-family: 'Syne', sans-serif !important; }
-    [data-testid="stMetricLabel"] { font-size: 11px !important; color: #4e5870 !important; }
+    # Reject errors and empties
+    if not s or s in {
+        "nan", "NaT", "None", "#REF!", "#DIV/0!", "#VALUE!",
+        "#N/A", "#NAME?", "#NULL!", "N/A", "-",
+    }:
+        return None
 
-    /* Chart containers */
-    .chart-container {
-        background: #13161f; border: 1px solid #ffffff0f;
-        border-radius: 14px; padding: 20px; margin-bottom: 16px;
-    }
-    .chart-title {
-        font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600;
-        color: #8892ab; margin-bottom: 14px;
-    }
+    # Remember if GViz gave us a "%" string
+    has_pct = s.endswith("%")
 
-    /* Table */
-    .kpi-table-wrap { overflow-x: auto; }
-    table.kpi-table {
-        width: 100%; border-collapse: collapse; font-size: 12.5px;
-    }
-    table.kpi-table th {
-        background: #1c2030; color: #4e5870;
-        padding: 10px 14px; text-align: left;
-        font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px;
-        border-bottom: 1px solid #ffffff0f;
-    }
-    table.kpi-table td {
-        padding: 10px 14px; border-bottom: 1px solid #ffffff0a;
-        color: #8892ab;
-    }
-    table.kpi-table td:nth-child(2) { color: #f0f2f8; font-weight: 500; }
-    table.kpi-table tr:hover td { background: #1a1f2e; }
+    # Strip formatting
+    clean = s.replace("%", "").replace(",", "").strip()
 
-    /* Divider */
-    hr { border-color: #ffffff0f !important; }
+    try:
+        num = float(clean)
+    except ValueError:
+        return None   # e.g. "Changeover occurs within seconds…"
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 99px; }
+    # If GViz sent "11.83%", restore to decimal 0.1183
+    if has_pct:
+        num /= 100.0
 
-    /* Plotly chart background override */
-    .js-plotly-plot .plotly { background: transparent !important; }
+    return num
 
-    /* Status dot */
-    .status-dot {
-        width: 8px; height: 8px; border-radius: 50%;
-        display: inline-block; margin-right: 6px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# DATE PARSER
+# ─────────────────────────────────────────────────────────────
+def parse_date(s: str) -> "date | None":
+    if not s or s in ("nan", "None", ""):
+        return None
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
+        "%m/%d/%Y", "%d/%m/%Y",
+        "%m-%d-%Y", "%d-%m-%Y",
+        "%Y/%m/%d",
+    ):
+        try:
+            return datetime.strptime(s[:10], fmt[:10]).date()
+        except Exception:
+            pass
+    try:
+        return pd.to_datetime(s).date()
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────────────────────
 # DATA LOADING
 # ─────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
-def load_sheet_data(sheet_id: str, sheet_name: str) -> pd.DataFrame:
-    """
-    Load data from Google Sheets via gspread (service account)
-    or fallback to CSV export URL (public sheet).
-    Returns raw dataframe with header=None.
-    """
+def load_raw(sheet_id: str, sheet_name: str) -> pd.DataFrame:
+    """Load sheet as CSV (all values as strings to preserve % suffixes)."""
+    # Try service account
     try:
-        creds_json = st.secrets.get("gcp_service_account", None)
-        if creds_json:
-            scope = [
-                "https://spreadsheets.google.com/feeds",
-                "https://www.googleapis.com/auth/drive",
-            ]
-            creds = Credentials.from_service_account_info(creds_json, scopes=scope)
+        import gspread
+        from google.oauth2.service_account import Credentials
+        info = st.secrets.get("gcp_service_account", None)
+        if info:
+            creds = Credentials.from_service_account_info(
+                info,
+                scopes=[
+                    "https://spreadsheets.google.com/feeds",
+                    "https://www.googleapis.com/auth/drive",
+                ],
+            )
             gc = gspread.authorize(creds)
-            sh = gc.open_by_key(sheet_id)
-            ws = sh.worksheet(sheet_name)
-            data = ws.get_all_values()
-            df = pd.DataFrame(data)
-            return df
-    except Exception as e:
-        pass  # Fall through to CSV method
+            rows = gc.open_by_key(sheet_id).worksheet(sheet_name).get_all_values()
+            return pd.DataFrame(rows)
+    except Exception:
+        pass
 
-    # Fallback: public CSV export
+    # Public GViz CSV — dtype=str preserves "11.83%" strings intact
     try:
         url = (
             f"https://docs.google.com/spreadsheets/d/{sheet_id}"
             f"/gviz/tq?tqx=out:csv&sheet={sheet_name.replace(' ', '%20')}"
         )
-        df = pd.read_csv(url, header=None)
-        return df
+        return pd.read_csv(url, header=None, dtype=str)
     except Exception as e:
-        st.error(f"⚠️ Could not load sheet '{sheet_name}': {e}")
+        st.error(f"Cannot load '{sheet_name}': {e}")
         return pd.DataFrame()
 
 
-def parse_kpi_df(raw_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Parse raw sheet dataframe into structured KPI dataframe.
-    Columns: criteria, kpi_name, formula, baseline, target, actual, + date columns
-    Row 0 = header. Actual = col 5. Dates start at col 6.
-    Values are stored AS-IS (decimals). Formatting done at display time.
-    """
-    if raw_df.empty or len(raw_df) < 2:
+# ─────────────────────────────────────────────────────────────
+# PARSE INTO KPI DATAFRAME
+# ─────────────────────────────────────────────────────────────
+def parse_kpi_df(raw: pd.DataFrame) -> pd.DataFrame:
+    if raw.empty or len(raw) < 2:
         return pd.DataFrame()
 
-    header_row = raw_df.iloc[0]
+    header = raw.iloc[0]
+
+    # Map column index → date object for daily columns (col 6+)
+    date_cols: dict = {}
+    for c in range(6, len(raw.columns)):
+        lbl = str(header.iloc[c]) if c < len(header) else ""
+        d = parse_date(lbl)
+        if d:
+            date_cols[c] = d
+
     records = []
+    for r in range(1, len(raw)):
+        row = raw.iloc[r]
 
-    # Collect date columns (col 6 onwards)
-    date_cols = {}
-    for c in range(6, len(raw_df.columns)):
-        raw_label = str(header_row.iloc[c]) if c < len(header_row) else ""
-        parsed_date = try_parse_date(raw_label)
-        if parsed_date:
-            date_cols[c] = parsed_date
-
-    for r in range(1, len(raw_df)):
-        row = raw_df.iloc[r]
         kpi_name = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
-        if not kpi_name or kpi_name.lower() == "kpi":
+        if not kpi_name or kpi_name.lower() in ("kpi", "nan", ""):
             continue
 
         criteria = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
-        formula  = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ""
         baseline = safe_float(row.iloc[3] if len(row) > 3 else None)
         target   = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""
         actual   = safe_float(row.iloc[5] if len(row) > 5 else None)
 
-        daily = {}
+        daily: dict = {}
         for c, dt in date_cols.items():
-            v = safe_float(row.iloc[c] if c < len(row) else None)
-            if v is not None:
-                daily[dt] = v
+            val = safe_float(row.iloc[c] if c < len(row) else None)
+            if val is not None:
+                daily[dt] = val
 
-        records.append({
-            "criteria":  criteria,
-            "kpi_name":  kpi_name,
-            "formula":   formula,
-            "baseline":  baseline,
-            "target":    target,
-            "actual":    actual,      # RAW decimal as in sheet
-            "daily":     daily,
-        })
+        records.append(dict(
+            criteria=criteria,
+            kpi_name=kpi_name,
+            baseline=baseline,
+            target=target,
+            actual=actual,
+            daily=daily,
+        ))
 
     return pd.DataFrame(records)
 
 
-def safe_float(v) -> float | None:
-    if v is None:
-        return None
-    s = str(v).strip()
-    if not s or s in ("nan", "NaT", "None", "#REF!", "#DIV/0!", "#VALUE!", "#N/A", "#NAME?"):
-        return None
-    # Remove % if present
-    s = s.replace("%", "").replace(",", "").strip()
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def try_parse_date(s: str):
-    """Try multiple date formats. Return date object or None."""
-    if not s or s in ("nan", "None", ""):
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y",
-                "%m-%d-%Y", "%d-%m-%Y", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(s[:10], fmt[:len(fmt)]).date()
-        except:
-            pass
-    # Try pandas
-    try:
-        return pd.to_datetime(s).date()
-    except:
-        return None
-
-
 # ─────────────────────────────────────────────────────────────
-# VALUE FORMATTING
+# DISPLAY FORMATTING
 # ─────────────────────────────────────────────────────────────
-def fmt_value(kpi_name: str, val: float | None) -> str:
+def fmt(kpi: str, val: "float | None") -> str:
     """
-    Format a raw sheet value for display.
-    Rule priority:
-      1. None / NaN  → "—"
-      2. BDT KPIs    → ৳ formatted (NO ×100, values are raw like 1507935)
-      3. Hours KPIs  → X.X hrs    (NO ×100, values are raw like 17.3)
-      4. All others  → percentage, values stored as decimals (0.34 → 34.3%)
+    Format stored value for display labels.
+    After safe_float:
+      BDT  KPIs → raw large numbers  (1507935)  → ৳1.51M
+      Hour KPIs → raw hour numbers   (17.3)     → 17.3 hrs
+      Pct  KPIs → raw decimals       (0.1182)   → 11.8%
     """
     if val is None or (isinstance(val, float) and np.isnan(val)):
         return "—"
 
-    name = kpi_name.lower()
-
-    # ── BDT monetary (check FIRST — these have large raw values like 1,507,935)
-    is_bdt = ("cost (bdt)" in name) or ("idle hours" in name and "fixed" in name)
-    if is_bdt:
-        if abs(val) >= 1_000_000:
-            return f"৳{val / 1_000_000:.2f}M"
-        if abs(val) >= 1_000:
-            return f"৳{val / 1_000:.1f}K"
+    if is_bdt(kpi):
+        a = abs(val)
+        if a >= 1_000_000: return f"৳{val/1_000_000:.2f}M"
+        if a >= 1_000:     return f"৳{val/1_000:.1f}K"
         return f"৳{val:,.0f}"
 
-    # ── Raw hours (check SECOND — values like 17.3, 86.0, 59.25)
-    if "hours/month" in name:
+    if is_hours(kpi):
         return f"{val:.1f} hrs"
 
-    # ── All remaining KPIs are % stored as decimals (0.xx)
-    #    Multiply by 100 for display
+    # Percentage decimal → multiply by 100 for display
     return f"{val * 100:.1f}%"
 
 
-def score_kpi(kpi_name: str, actual: float | None) -> float | None:
-    """
-    Return a 0–1 performance score for status badges.
-    BDT / Hours KPIs scored against baseline reference values.
-    Percentage KPIs stored as decimals (0.xx), scored directly.
-    """
-    if actual is None or (isinstance(actual, float) and np.isnan(actual)):
+def to_chart(kpi: str, val: "float | None") -> "float | None":
+    """Convert stored value to chart-axis unit."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return None
+    if is_bdt(kpi):   return val / 1_000   # show in K BDT on axis
+    if is_hours(kpi): return val            # raw hours
+    return val * 100                        # decimal → %
+
+
+def axis_unit(kpi: str) -> str:
+    if is_bdt(kpi):   return "K BDT"
+    if is_hours(kpi): return "hrs"
+    return "%"
+
+
+# ─────────────────────────────────────────────────────────────
+# SCORING
+# ─────────────────────────────────────────────────────────────
+def score(kpi: str, val: "float | None") -> "float | None":
+    if val is None or (isinstance(val, float) and np.isnan(val)):
         return None
 
-    name = kpi_name.lower()
-    is_lower_better = any(k.lower() in name.lower() for k in LOWER_IS_BETTER)
+    lower = kpi.lower() in LOWER_IS_BETTER
 
-    # BDT cost KPIs — lower is better, normalise against rough thresholds
-    is_bdt   = ("cost (bdt)" in name) or ("idle hours" in name and "fixed" in name)
-    is_hours = "hours/month" in name
+    if is_bdt(kpi):
+        return max(0.0, 1.0 - min(1.0, abs(val) / 5_000_000))
 
-    if is_bdt:
-        # Score 1.0 if zero cost, 0.0 if >= 5M BDT
-        return max(0.0, 1.0 - min(1.0, actual / 5_000_000))
+    if is_hours(kpi):
+        return max(0.0, 1.0 - min(1.0, abs(val) / 100.0))
 
-    if is_hours:
-        # Target is <20 hrs. Score 1.0 at 0 hrs, 0.0 at 100+ hrs
-        return max(0.0, 1.0 - min(1.0, actual / 100.0))
-
-    # All percentage KPIs — stored as decimals (0.xx), range roughly [0, 1]
-    if is_lower_better:
-        # Score = 1 when 0%, score = 0 when 100%
-        return max(0.0, 1.0 - min(1.0, abs(actual)))
+    # Percentage decimal
+    if lower:
+        return max(0.0, 1.0 - min(1.0, abs(val)))
     else:
-        # Score = value itself, capped at 1
-        return min(1.0, max(0.0, actual))
+        return min(1.0, max(0.0, val))
 
 
-def status_from_score(score: float | None):
-    if score is None:
-        return "na", "N/A", "#4e5870", "badge-na"
-    if score >= 0.75:
-        return "good", "On Track", "#22d3a5", "badge-good"
-    if score >= 0.45:
-        return "warn", "At Risk", "#f59e0b", "badge-warn"
-    return "bad", "Critical", "#ef4444", "badge-bad"
+def badge(sc: "float | None"):
+    if sc is None:     return "N/A",      "#4e5870", "badge-na"
+    if sc >= 0.75:     return "On Track", "#22d3a5", "badge-good"
+    if sc >= 0.45:     return "At Risk",  "#f59e0b", "badge-warn"
+    return "Critical", "#ef4444", "badge-bad"
 
 
 # ─────────────────────────────────────────────────────────────
-# PLOTLY CHART THEME
+# CSS
 # ─────────────────────────────────────────────────────────────
-PLOT_BG    = "#13161f"
-PAPER_BG   = "#13161f"
-GRID_COLOR = "rgba(255,255,255,0.06)"
-TICK_COLOR = "#8892ab"
-FONT_FMLY  = "DM Sans, sans-serif"
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
+.stApp{background:#0d0f14}
+section[data-testid="stSidebar"]{background:#13161f!important;border-right:1px solid #ffffff0f}
+section[data-testid="stSidebar"] *{color:#f0f2f8!important}
+section[data-testid="stSidebar"] .stSelectbox>div>div{background:#1c2030;border:1px solid #ffffff1a}
+header[data-testid="stHeader"]{background:transparent}
+.top-bar{background:linear-gradient(135deg,#13161f,#1a1f2e);border:1px solid #ffffff0f;border-radius:16px;padding:20px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}
+.brand-logo{width:44px;height:44px;background:linear-gradient(135deg,#4F8FFF,#00E5B8);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;color:#fff;font-size:15px;box-shadow:0 0 20px #4F8FFF33;float:left;margin-right:14px}
+.brand-title{font-family:'Syne',sans-serif;font-weight:700;font-size:18px;color:#f0f2f8}
+.brand-sub{font-size:11px;color:#4e5870;text-transform:uppercase;letter-spacing:.8px}
+.sbu-hero-name{font-family:'Syne',sans-serif;font-weight:800;font-size:28px;background:linear-gradient(90deg,#4F8FFF,#00E5B8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sbu-hero-full{font-size:12px;color:#4e5870;margin-top:2px}
+.kpi-card{background:#13161f;border:1px solid #ffffff0f;border-radius:14px;padding:18px 18px 14px;border-top:3px solid;min-height:140px}
+.kpi-card:hover{border-color:#ffffff1a}
+.kpi-card-cat{font-size:10px;color:#4e5870;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.kpi-card-val{font-family:'Syne',sans-serif;font-weight:700;font-size:26px;line-height:1;margin-bottom:6px}
+.kpi-card-name{font-size:11.5px;color:#8892ab;margin-bottom:8px;line-height:1.3}
+.kpi-badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.badge-good{background:#22d3a520;color:#22d3a5}
+.badge-warn{background:#f59e0b20;color:#f59e0b}
+.badge-bad{background:#ef444420;color:#ef4444}
+.badge-na{background:#ffffff12;color:#4e5870}
+.section-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#4e5870;margin:24px 0 12px 0}
+[data-testid="stMetric"]{background:#13161f;border:1px solid #ffffff0f;border-radius:12px;padding:14px}
+[data-testid="stMetricValue"]{font-family:'Syne',sans-serif!important}
+[data-testid="stMetricLabel"]{font-size:11px!important;color:#4e5870!important}
+hr{border-color:#ffffff0f!important}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#ffffff1a;border-radius:99px}
+.kpi-table-wrap{overflow-x:auto}
+table.kpi-table{width:100%;border-collapse:collapse;font-size:12.5px}
+table.kpi-table th{background:#1c2030;color:#4e5870;padding:10px 14px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #ffffff0f}
+table.kpi-table td{padding:10px 14px;border-bottom:1px solid #ffffff0a;color:#8892ab}
+table.kpi-table td:nth-child(2){color:#f0f2f8;font-weight:500}
+table.kpi-table tr:hover td{background:#1a1f2e}
+</style>
+"""
 
-def base_layout(title="", height=320):
+# ─────────────────────────────────────────────────────────────
+# CHART CONSTANTS
+# ─────────────────────────────────────────────────────────────
+BG = "#13161f"; GRID = "rgba(255,255,255,0.06)"; TICK = "#8892ab"; FONT = "DM Sans,sans-serif"
+
+def _base(h=300):
     return dict(
-        title=dict(text=title, font=dict(size=13, color="#8892ab", family=FONT_FMLY)),
-        paper_bgcolor=PAPER_BG,
-        plot_bgcolor=PLOT_BG,
-        font=dict(family=FONT_FMLY, color=TICK_COLOR, size=11),
-        height=height,
-        margin=dict(l=10, r=10, t=40, b=10),
+        paper_bgcolor=BG, plot_bgcolor=BG,
+        font=dict(family=FONT, color=TICK, size=11),
+        height=h, margin=dict(l=10, r=10, t=36, b=10),
         legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
-        xaxis=dict(gridcolor=GRID_COLOR, color=TICK_COLOR, showline=False),
-        yaxis=dict(gridcolor=GRID_COLOR, color=TICK_COLOR, showline=False),
+        xaxis=dict(gridcolor=GRID, color=TICK, showline=False),
+        yaxis=dict(gridcolor=GRID, color=TICK, showline=False),
     )
 
 
 # ─────────────────────────────────────────────────────────────
 # CHARTS
 # ─────────────────────────────────────────────────────────────
-def chart_trend(df: pd.DataFrame, selected_kpi: str, date_from, date_to) -> go.Figure:
-    row = df[df["kpi_name"] == selected_kpi]
-    if row.empty:
-        return go.Figure()
+def make_trend(df, kpi, d0, d1):
+    row = df[df["kpi_name"] == kpi]
+    if row.empty: return go.Figure()
     row = row.iloc[0]
-
-    daily = {k: v for k, v in row["daily"].items()
-             if date_from <= k <= date_to}
-    if not daily:
-        return go.Figure()
-
-    dates = sorted(daily.keys())
-    vals  = [daily[d] for d in dates]
-    is_bdt_kpi   = ("cost (bdt)" in selected_kpi.lower()) or ("idle hours" in selected_kpi.lower() and "fixed" in selected_kpi.lower())
-    is_hours_kpi = "hours/month" in selected_kpi.lower()
-
-    if is_bdt_kpi:
-        display_vals = [v / 1_000 if v is not None else None for v in vals]  # show in K
-        unit = "K BDT"
-    elif is_hours_kpi:
-        display_vals = vals
-        unit = " hrs"
-    else:
-        display_vals = [v * 100 if v is not None else None for v in vals]
-        unit = "%"
-
+    pts = sorted([(d, v) for d, v in row["daily"].items() if d0 <= d <= d1])
+    if not pts: return go.Figure()
+    xs = [p[0] for p in pts]
+    ys = [to_chart(kpi, p[1]) for p in pts]
+    u  = axis_unit(kpi)
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=dates, y=display_vals,
-        mode="lines+markers",
-        name=selected_kpi,
-        line=dict(color="#4F8FFF", width=2.5),
-        marker=dict(size=5, color="#4F8FFF"),
-        fill="tozeroy",
-        fillcolor="rgba(79,143,255,0.10)",
-        hovertemplate=f"%{{x}}: %{{y:.2f}}{unit}<extra></extra>",
+        x=xs, y=ys, mode="lines+markers", name=kpi,
+        line=dict(color="#4F8FFF", width=2.5), marker=dict(size=5, color="#4F8FFF"),
+        fill="tozeroy", fillcolor="rgba(79,143,255,0.10)",
+        hovertemplate=f"%{{x}}: %{{y:.2f}} {u}<extra></extra>",
     ))
-
-    # Baseline reference line
-    if row["baseline"] is not None and not (isinstance(row["baseline"], float) and np.isnan(row["baseline"])):
-        if is_bdt_kpi:
-            bv = row["baseline"] / 1_000
-        elif is_hours_kpi:
-            bv = row["baseline"]
-        else:
-            bv = row["baseline"] * 100
-        fig.add_hline(
-            y=bv, line_dash="dot", line_color="#FF6B6B", line_width=1.5,
-            annotation_text=f"Baseline {bv:.1f}{unit}",
-            annotation_font=dict(color="#FF6B6B", size=10),
-        )
-
-    layout = base_layout(selected_kpi, height=300)
-    layout["yaxis"]["ticksuffix"] = unit
-    fig.update_layout(**layout)
+    bv = to_chart(kpi, row["baseline"])
+    if bv is not None:
+        fig.add_hline(y=bv, line_dash="dot", line_color="#FF6B6B", line_width=1.5,
+                      annotation_text=f"Baseline {bv:.2f} {u}",
+                      annotation_font=dict(color="#FF6B6B", size=10))
+    lay = _base(300)
+    lay["title"] = dict(text=kpi[:60], font=dict(size=12, color=TICK))
+    lay["yaxis"]["ticksuffix"] = f" {u}"
+    fig.update_layout(**lay)
     return fig
 
 
-def chart_radar(df: pd.DataFrame) -> go.Figure:
-    groups = df.groupby("criteria").apply(
-        lambda g: np.nanmean([
-            s * 100
-            for s in [score_kpi(row["kpi_name"], row["actual"]) for _, row in g.iterrows()]
-            if s is not None
-        ]) if len(g) else 0
-    ).reset_index()
-    groups.columns = ["criteria", "score"]
-
-    labels = [c.split(" & ")[0][:20] for c in groups["criteria"]]
-    scores = groups["score"].fillna(0).tolist()
-    labels.append(labels[0])
-    scores.append(scores[0])
-
-    fig = go.Figure(go.Scatterpolar(
-        r=scores, theta=labels,
-        fill="toself",
-        fillcolor="rgba(79,143,255,0.18)",
-        line=dict(color="#4F8FFF", width=2),
-        marker=dict(color="#4F8FFF", size=5),
-    ))
-    fig.update_layout(
-        polar=dict(
-            bgcolor=PLOT_BG,
-            radialaxis=dict(visible=True, range=[0, 100], gridcolor=GRID_COLOR,
-                           tickcolor=TICK_COLOR, tickfont=dict(size=9, color=TICK_COLOR),
-                           ticksuffix="%"),
-            angularaxis=dict(color=TICK_COLOR, gridcolor=GRID_COLOR,
-                            tickfont=dict(size=10, color=TICK_COLOR)),
-        ),
-        paper_bgcolor=PAPER_BG,
-        font=dict(family=FONT_FMLY, color=TICK_COLOR),
-        height=320,
-        margin=dict(l=20, r=20, t=30, b=20),
-        showlegend=False,
-    )
-    return fig
-
-
-def chart_bar_baseline_actual(df: pd.DataFrame) -> go.Figure:
-    """Horizontal bar: Baseline vs Actual for all KPIs with numeric data."""
-    valid = df[df["actual"].notna() & df["baseline"].notna()].copy()
-    if valid.empty:
-        valid = df[df["actual"].notna()].copy()
-
-    # Convert to display %
-    def to_display(row, col):
-        v = row[col]
-        if v is None or (isinstance(v, float) and np.isnan(v)):
-            return None
-        name = row["kpi_name"].lower()
-        is_bdt   = ("cost (bdt)" in name) or ("idle hours" in name and "fixed" in name)
-        is_hours = "hours/month" in name
-        if is_bdt:
-            return v / 1_000          # show in K BDT
-        if is_hours:
-            return v                  # raw hours
-        return v * 100                # decimal → %
-
-    valid["actual_disp"]   = valid.apply(lambda r: to_display(r, "actual"), axis=1)
-    valid["baseline_disp"] = valid.apply(lambda r: to_display(r, "baseline"), axis=1)
-
-    labels = [k[:38] for k in valid["kpi_name"]]
-
-    fig = go.Figure()
-    if "baseline_disp" in valid and valid["baseline_disp"].notna().any():
-        fig.add_trace(go.Bar(
-            y=labels, x=valid["baseline_disp"],
-            name="Baseline", orientation="h",
-            marker_color="rgba(79,143,255,0.45)",
-            marker_line=dict(color="#4F8FFF", width=1),
-        ))
-    fig.add_trace(go.Bar(
-        y=labels, x=valid["actual_disp"],
-        name="Actual", orientation="h",
-        marker_color="rgba(0,229,184,0.45)",
-        marker_line=dict(color="#00E5B8", width=1),
-    ))
-
-    layout = base_layout("Baseline vs Actual", height=max(320, len(valid) * 28))
-    layout["barmode"] = "group"
-    layout["xaxis"]["title"] = "Value"
-    layout.pop("xaxis", None)
-    fig.update_layout(
-        barmode="group",
-        paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
-        font=dict(family=FONT_FMLY, color=TICK_COLOR, size=11),
-        height=max(320, len(valid) * 30),
-        margin=dict(l=10, r=20, t=40, b=10),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
-        xaxis=dict(gridcolor=GRID_COLOR, color=TICK_COLOR),
-        yaxis=dict(gridcolor=GRID_COLOR, color=TICK_COLOR, automargin=True,
-                   tickfont=dict(size=10)),
-    )
-    return fig
-
-
-def chart_heatmap(df: pd.DataFrame, selected_kpi: str, date_from, date_to) -> go.Figure:
-    row = df[df["kpi_name"] == selected_kpi]
-    if row.empty:
-        return go.Figure()
-    row = row.iloc[0]
-
-    daily = {k: v for k, v in row["daily"].items()
-             if date_from <= k <= date_to}
-    if not daily:
-        return go.Figure()
-
-    dates = sorted(daily.keys())
-    vals  = [daily[d] for d in dates]
-    is_bdt_h   = ("cost (bdt)" in selected_kpi.lower()) or ("idle hours" in selected_kpi.lower() and "fixed" in selected_kpi.lower())
-    is_hours_h = "hours/month" in selected_kpi.lower()
-
-    if is_bdt_h:
-        disp_vals = [v / 1_000 if v is not None else None for v in vals]
-        unit = "K BDT"
-    elif is_hours_h:
-        disp_vals = vals
-        unit = " hrs"
-    else:
-        disp_vals = [v * 100 if v is not None else None for v in vals]
-        unit = "%"
-
-    fig = go.Figure(go.Heatmap(
-        x=[str(d) for d in dates],
-        y=[selected_kpi[:30]],
-        z=[disp_vals],
-        colorscale=[[0, "#ef4444"], [0.5, "#f59e0b"], [1, "#22d3a5"]],
-        hoverongaps=False,
-        hovertemplate="%{x}: %{z:.2f}" + unit + "<extra></extra>",
-        showscale=True,
-        colorbar=dict(
-            tickfont=dict(color=TICK_COLOR, size=10),
-            outlinewidth=0, bgcolor=PAPER_BG,
-        ),
-    ))
-    fig.update_layout(
-        paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
-        font=dict(family=FONT_FMLY, color=TICK_COLOR, size=11),
-        height=130,
-        margin=dict(l=10, r=10, t=10, b=50),
-        xaxis=dict(color=TICK_COLOR, tickangle=-45, tickfont=dict(size=9)),
-        yaxis=dict(color=TICK_COLOR, tickfont=dict(size=9)),
-    )
-    return fig
-
-
-def chart_donut(df: pd.DataFrame) -> go.Figure:
-    groups = {}
-    for _, row in df.iterrows():
-        c = row["criteria"]
-        s = score_kpi(row["kpi_name"], row["actual"])
+def make_radar(df):
+    grp: dict = {}
+    for _, r in df.iterrows():
+        s = score(r["kpi_name"], r["actual"])
         if s is not None:
-            groups.setdefault(c, []).append(s * 100)
+            grp.setdefault(r["criteria"], []).append(s * 100)
+    if not grp: return go.Figure()
+    labs = [k.split(" & ")[0][:20] for k in grp]
+    vals = [float(np.mean(v)) for v in grp.values()]
+    labs += [labs[0]]; vals += [vals[0]]
+    fig = go.Figure(go.Scatterpolar(
+        r=vals, theta=labs, fill="toself",
+        fillcolor="rgba(79,143,255,0.18)",
+        line=dict(color="#4F8FFF", width=2), marker=dict(color="#4F8FFF", size=5),
+    ))
+    fig.update_layout(
+        polar=dict(bgcolor=BG,
+                   radialaxis=dict(visible=True, range=[0, 100], gridcolor=GRID,
+                                   tickfont=dict(size=9, color=TICK), ticksuffix="%"),
+                   angularaxis=dict(color=TICK, gridcolor=GRID,
+                                    tickfont=dict(size=10, color=TICK))),
+        paper_bgcolor=BG, font=dict(family=FONT, color=TICK),
+        height=300, margin=dict(l=20, r=20, t=30, b=20), showlegend=False,
+    )
+    return fig
 
-    labels = list(groups.keys())
-    values = [np.mean(v) for v in groups.values()]
-    colors = [CRITERIA_COLORS.get(l, "#8892ab") for l in labels]
 
+def make_bar(df):
+    rows = df[df["actual"].notna()].copy()
+    if rows.empty: return go.Figure()
+    labs = [k[:38] for k in rows["kpi_name"]]
+    act  = [to_chart(r["kpi_name"], r["actual"])   for _, r in rows.iterrows()]
+    base = [to_chart(r["kpi_name"], r["baseline"]) for _, r in rows.iterrows()]
+    fig  = go.Figure()
+    if any(b is not None for b in base):
+        fig.add_trace(go.Bar(y=labs, x=base, name="Baseline", orientation="h",
+                             marker_color="rgba(79,143,255,0.45)",
+                             marker_line=dict(color="#4F8FFF", width=1)))
+    fig.add_trace(go.Bar(y=labs, x=act, name="Actual", orientation="h",
+                         marker_color="rgba(0,229,184,0.45)",
+                         marker_line=dict(color="#00E5B8", width=1)))
+    h = max(300, len(rows) * 30)
+    fig.update_layout(
+        barmode="group", paper_bgcolor=BG, plot_bgcolor=BG,
+        font=dict(family=FONT, color=TICK, size=11), height=h,
+        margin=dict(l=10, r=20, t=36, b=10),
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(gridcolor=GRID, color=TICK),
+        yaxis=dict(gridcolor=GRID, color=TICK, automargin=True, tickfont=dict(size=10)),
+        title=dict(text="Baseline vs Actual", font=dict(size=12, color=TICK)),
+    )
+    return fig
+
+
+def make_heatmap(df, kpi, d0, d1):
+    row = df[df["kpi_name"] == kpi]
+    if row.empty: return go.Figure()
+    row = row.iloc[0]
+    pts = sorted([(d, v) for d, v in row["daily"].items() if d0 <= d <= d1])
+    if not pts: return go.Figure()
+    u = axis_unit(kpi)
+    fig = go.Figure(go.Heatmap(
+        x=[str(p[0]) for p in pts],
+        y=[kpi[:30]],
+        z=[[to_chart(kpi, p[1]) for p in pts]],
+        colorscale=[[0,"#ef4444"],[0.5,"#f59e0b"],[1,"#22d3a5"]],
+        hovertemplate=f"%{{x}}: %{{z:.2f}} {u}<extra></extra>",
+        showscale=True,
+        colorbar=dict(tickfont=dict(color=TICK, size=10), outlinewidth=0, bgcolor=BG),
+    ))
+    fig.update_layout(
+        paper_bgcolor=BG, plot_bgcolor=BG,
+        font=dict(family=FONT, color=TICK, size=11),
+        height=130, margin=dict(l=10, r=10, t=10, b=50),
+        xaxis=dict(color=TICK, tickangle=-45, tickfont=dict(size=9)),
+        yaxis=dict(color=TICK, tickfont=dict(size=9)),
+    )
+    return fig
+
+
+def make_donut(df):
+    grp: dict = {}
+    for _, r in df.iterrows():
+        s = score(r["kpi_name"], r["actual"])
+        if s is not None:
+            grp.setdefault(r["criteria"], []).append(s * 100)
+    if not grp: return go.Figure()
+    labs   = list(grp.keys())
+    vals   = [float(np.mean(v)) for v in grp.values()]
+    colors = [CRITERIA_COLORS.get(l, "#8892ab") for l in labs]
     fig = go.Figure(go.Pie(
-        labels=[l.split(" & ")[0] for l in labels],
-        values=values,
-        hole=0.65,
-        marker=dict(colors=[c + "aa" for c in colors],
-                    line=dict(color=colors, width=2)),
+        labels=[l.split(" & ")[0] for l in labs], values=vals, hole=0.65,
+        marker=dict(colors=[c+"aa" for c in colors], line=dict(color=colors, width=2)),
         textfont=dict(size=11, color="#f0f2f8"),
         hovertemplate="%{label}: %{value:.1f}%<extra></extra>",
     ))
     fig.update_layout(
-        paper_bgcolor=PAPER_BG,
-        font=dict(family=FONT_FMLY, color=TICK_COLOR, size=11),
-        height=280,
-        margin=dict(l=10, r=10, t=10, b=10),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10, color=TICK_COLOR),
-                    orientation="v"),
-        annotations=[dict(
-            text="Score", x=0.5, y=0.5, font_size=13,
-            font=dict(color="#8892ab"), showarrow=False
-        )],
-        showlegend=True,
+        paper_bgcolor=BG, font=dict(family=FONT, color=TICK, size=11),
+        height=280, margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10, color=TICK)),
+        annotations=[dict(text="Score", x=0.5, y=0.5,
+                          font=dict(size=13, color="#8892ab"), showarrow=False)],
     )
     return fig
 
 
 # ─────────────────────────────────────────────────────────────
-# MAIN APP
+# MAIN
 # ─────────────────────────────────────────────────────────────
 def main():
-    inject_css()
+    st.markdown(CSS, unsafe_allow_html=True)
 
     # ── SIDEBAR ──────────────────────────────────────────────
     with st.sidebar:
         st.markdown("### 🏭 AKIJ Resource")
         st.markdown("---")
-
-        # SBU Selector
         st.markdown("**Select SBU**")
-        sbu_key = st.selectbox(
-            "SBU",
-            options=list(SBU_CONFIG.keys()),
-            format_func=lambda k: f"{k} — {SBU_CONFIG[k]['full_name'][:28]}",
+        sbu = st.selectbox(
+            "SBU", list(SBU_CONFIG.keys()),
+            format_func=lambda k: f"{k}  —  {SBU_CONFIG[k]['full_name'][:28]}",
             label_visibility="collapsed",
         )
+        cfg  = SBU_CONFIG[sbu]
+        sname = cfg["sheet"]
 
         st.markdown("---")
         st.markdown("**Date Range**")
 
-        # Get available dates for selected SBU to set defaults
-        sbu_info    = SBU_CONFIG[sbu_key]
-        sheet_name  = sbu_info["sheet"]
-
         with st.spinner("Loading…"):
-            raw_df = load_sheet_data(SHEET_ID, sheet_name)
-        kpi_df = parse_kpi_df(raw_df)
+            raw = load_raw(SHEET_ID, sname)
+        df = parse_kpi_df(raw)
 
-        all_dates = sorted(set(
-            d for row in kpi_df.itertuples()
-            for d in row.daily.keys()
-        )) if not kpi_df.empty else []
+        all_dates = sorted({d for r in df.itertuples() for d in r.daily}) if not df.empty else []
+        min_d = all_dates[0]  if all_dates else date(2026, 4, 1)
+        max_d = all_dates[-1] if all_dates else date(2026, 4, 30)
 
-        min_date = all_dates[0]  if all_dates else date(2026, 4, 1)
-        max_date = all_dates[-1] if all_dates else date(2026, 4, 30)
-
-        date_from = st.date_input("From", value=min_date, min_value=min_date, max_value=max_date)
-        date_to   = st.date_input("To",   value=max_date, min_value=min_date, max_value=max_date)
+        d0 = st.date_input("From", value=min_d, min_value=min_d, max_value=max_d)
+        d1 = st.date_input("To",   value=max_d, min_value=min_d, max_value=max_d)
 
         st.markdown("---")
-        st.markdown("**Filter by Category**")
-        all_criteria = ["All"] + sorted(kpi_df["criteria"].unique().tolist()) if not kpi_df.empty else ["All"]
-        cat_filter = st.selectbox("Category", all_criteria, label_visibility="collapsed")
+        st.markdown("**Filter Category**")
+        cats = ["All"] + sorted(df["criteria"].unique().tolist()) if not df.empty else ["All"]
+        cat  = st.selectbox("Category", cats, label_visibility="collapsed")
 
         st.markdown("---")
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
-        st.markdown("---")
         st.markdown(
-            '<p style="font-size:10px;color:#4e5870;text-align:center">'
-            'AKIJ Resource Production Planning<br>KPI Intelligence Dashboard<br>'
-            'Data pulled live from Google Sheets</p>',
+            "<p style='font-size:10px;color:#4e5870;text-align:center;margin-top:16px'>"
+            "AKIJ Resource · Production Planning<br>KPI Intelligence · Live Google Sheets</p>",
             unsafe_allow_html=True,
         )
 
-    # ── HEADER BAR ───────────────────────────────────────────
+    # ── HEADER ───────────────────────────────────────────────
     st.markdown(f"""
     <div class="top-bar">
       <div style="display:flex;align-items:center">
         <div class="brand-logo">AR</div>
-        <div class="brand-text">
+        <div>
           <div class="brand-title">AKIJ Resource</div>
           <div class="brand-sub">Production Planning KPI Intelligence</div>
         </div>
       </div>
-      <div class="sbu-hero">
-        <div class="sbu-hero-name">{sbu_key}</div>
-        <div class="sbu-hero-full">{sbu_info['full_name']}</div>
+      <div style="text-align:right">
+        <div class="sbu-hero-name">{sbu}</div>
+        <div class="sbu-hero-full">{cfg['full_name']}</div>
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    if kpi_df.empty:
-        st.warning("⚠️ No data loaded. Check your Google Sheet connection and sheet name.")
-        st.info("If the sheet is not public, configure a service account in `.streamlit/secrets.toml`.")
+    if df.empty:
+        st.warning("⚠️ No data. Share the sheet publicly: Share → Anyone with link → Viewer.")
         return
 
-    # ── APPLY FILTERS ────────────────────────────────────────
-    display_df = kpi_df.copy()
-    if cat_filter != "All":
-        display_df = display_df[display_df["criteria"] == cat_filter]
-
-    # Filter daily data by date range
-    display_df = display_df.copy()
-    display_df["daily"] = display_df["daily"].apply(
-        lambda d: {k: v for k, v in d.items() if date_from <= k <= date_to}
+    # ── FILTER ───────────────────────────────────────────────
+    view = df.copy()
+    if cat != "All":
+        view = view[view["criteria"] == cat].reset_index(drop=True)
+    view["daily"] = view["daily"].apply(
+        lambda d: {k: v for k, v in d.items() if d0 <= k <= d1}
     )
 
     # ── SUMMARY METRICS ──────────────────────────────────────
-    valid_actuals = [r for r in display_df.itertuples() if r.actual is not None]
-    scores_all = [score_kpi(r.kpi_name, r.actual) for r in valid_actuals]
-    scores_clean = [s for s in scores_all if s is not None]
+    scores_all = [score(r.kpi_name, r.actual) for r in view.itertuples()]
+    valid      = [s for s in scores_all if s is not None]
+    avg_sc     = np.mean(valid) * 100 if valid else 0
 
-    avg_score  = np.mean(scores_clean) * 100 if scores_clean else 0
-    on_track   = sum(1 for s in scores_clean if s >= 0.75)
-    at_risk    = sum(1 for s in scores_clean if 0.45 <= s < 0.75)
-    critical   = sum(1 for s in scores_clean if s < 0.45)
-    total_kpis = len(display_df)
-
-    date_label = f"{date_from.strftime('%d %b %Y')} → {date_to.strftime('%d %b %Y')}"
-    st.markdown(f'<p style="font-size:12px;color:#4e5870;margin-bottom:12px">📅 {date_label} &nbsp;|&nbsp; {total_kpis} KPIs tracked</p>', unsafe_allow_html=True)
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.metric("Overall Score", f"{avg_score:.1f}%")
-    with c2:
-        st.metric("KPIs Tracked", str(total_kpis))
-    with c3:
-        st.metric("✅ On Track", str(on_track))
-    with c4:
-        st.metric("⚠️ At Risk", str(at_risk))
-    with c5:
-        st.metric("🔴 Critical", str(critical))
-
+    st.markdown(
+        f"<p style='font-size:12px;color:#4e5870;margin-bottom:12px'>"
+        f"📅 {d0.strftime('%d %b %Y')} → {d1.strftime('%d %b %Y')}"
+        f"  |  {len(view)} KPIs</p>",
+        unsafe_allow_html=True,
+    )
+    c1,c2,c3,c4,c5 = st.columns(5)
+    c1.metric("Overall Score",  f"{avg_sc:.1f}%")
+    c2.metric("KPIs Tracked",   len(view))
+    c3.metric("✅ On Track",    sum(1 for s in valid if s >= 0.75))
+    c4.metric("⚠️ At Risk",    sum(1 for s in valid if 0.45 <= s < 0.75))
+    c5.metric("🔴 Critical",   sum(1 for s in valid if s < 0.45))
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # ── KPI SCORE CARDS ──────────────────────────────────────
     st.markdown('<div class="section-title">KPI Scorecard</div>', unsafe_allow_html=True)
-
-    cards_per_row = 4
-    rows = [display_df.iloc[i:i+cards_per_row] for i in range(0, len(display_df), cards_per_row)]
-
-    for row_df in rows:
-        cols = st.columns(len(row_df))
-        for col, (_, kpi_row) in zip(cols, row_df.iterrows()):
-            score = score_kpi(kpi_row["kpi_name"], kpi_row["actual"])
-            status, status_label, color, badge_class = status_from_score(score)
-            display_val = fmt_value(kpi_row["kpi_name"], kpi_row["actual"])
-            crit_color  = CRITERIA_COLORS.get(kpi_row["criteria"], "#4e5870")
-
+    COLS = 4
+    for i in range(0, len(view), COLS):
+        chunk = view.iloc[i:i+COLS]
+        cols  = st.columns(len(chunk))
+        for col, (_, r) in zip(cols, chunk.iterrows()):
+            sc            = score(r["kpi_name"], r["actual"])
+            blabel, bcol, bcls = badge(sc)
+            val_str       = fmt(r["kpi_name"], r["actual"])
             with col:
                 st.markdown(f"""
-                <div class="kpi-card" style="border-top-color:{color}">
-                  <div class="kpi-card-criteria">{kpi_row['criteria'][:25]}</div>
-                  <div class="kpi-card-value" style="color:{color}">{display_val}</div>
-                  <div class="kpi-card-name">{kpi_row['kpi_name']}</div>
-                  <span class="kpi-badge {badge_class}">{status_label}</span>
+                <div class="kpi-card" style="border-top-color:{bcol}">
+                  <div class="kpi-card-cat">{r['criteria'][:26]}</div>
+                  <div class="kpi-card-val" style="color:{bcol}">{val_str}</div>
+                  <div class="kpi-card-name">{r['kpi_name']}</div>
+                  <span class="kpi-badge {bcls}">{blabel}</span>
                 </div>
                 """, unsafe_allow_html=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # ── TREND + RADAR ─────────────────────────────────────────
-    st.markdown('<div class="section-title">Trend Analysis & Category Performance</div>', unsafe_allow_html=True)
-    col_trend, col_radar = st.columns([3, 2])
-
-    with col_trend:
-        numeric_kpis = [r["kpi_name"] for _, r in display_df.iterrows()
-                        if r["daily"] and any(v is not None for v in r["daily"].values())]
-        if numeric_kpis:
-            sel_kpi = st.selectbox("Select KPI for trend", numeric_kpis, key="trend_sel",
-                                   label_visibility="collapsed")
-            fig_trend = chart_trend(display_df, sel_kpi, date_from, date_to)
-            st.plotly_chart(fig_trend, use_container_width=True, config={"displayModeBar": False})
+    st.markdown('<div class="section-title">Trend & Category Radar</div>', unsafe_allow_html=True)
+    ct, cr = st.columns([3, 2])
+    kpis_daily = [
+        r["kpi_name"] for _, r in view.iterrows()
+        if any(d0 <= d <= d1 for d in r["daily"])
+    ]
+    with ct:
+        if kpis_daily:
+            sel_t = st.selectbox("KPI (trend)", kpis_daily, key="t", label_visibility="collapsed")
+            st.plotly_chart(make_trend(view, sel_t, d0, d1), use_container_width=True,
+                            config={"displayModeBar": False})
         else:
-            st.info("No daily data available for the selected range.")
+            st.info("No daily data for selected range.")
+    with cr:
+        st.plotly_chart(make_radar(view), use_container_width=True,
+                        config={"displayModeBar": False})
 
-    with col_radar:
-        fig_radar = chart_radar(display_df)
-        st.plotly_chart(fig_radar, use_container_width=True, config={"displayModeBar": False})
-
-    # ── BAR CHART + DONUT ─────────────────────────────────────
-    st.markdown('<div class="section-title">Baseline vs Actual Comparison & Category Distribution</div>', unsafe_allow_html=True)
-    col_bar, col_donut = st.columns([3, 2])
-
-    with col_bar:
-        fig_bar = chart_bar_baseline_actual(display_df)
-        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
-
-    with col_donut:
-        fig_donut = chart_donut(display_df)
-        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+    # ── BAR + DONUT ───────────────────────────────────────────
+    st.markdown('<div class="section-title">Baseline vs Actual & Category Distribution</div>',
+                unsafe_allow_html=True)
+    cb, cd = st.columns([3, 2])
+    with cb:
+        st.plotly_chart(make_bar(view), use_container_width=True, config={"displayModeBar": False})
+    with cd:
+        st.plotly_chart(make_donut(view), use_container_width=True, config={"displayModeBar": False})
 
     # ── HEATMAP ───────────────────────────────────────────────
-    st.markdown('<div class="section-title">Daily Performance Heatmap</div>', unsafe_allow_html=True)
-    if numeric_kpis:
-        sel_heat = st.selectbox("Select KPI for heatmap", numeric_kpis, key="heat_sel",
-                                label_visibility="collapsed")
-        fig_heat = chart_heatmap(display_df, sel_heat, date_from, date_to)
-        st.plotly_chart(fig_heat, use_container_width=True, config={"displayModeBar": False})
+    if kpis_daily:
+        st.markdown('<div class="section-title">Daily Performance Heatmap</div>',
+                    unsafe_allow_html=True)
+        sel_h = st.selectbox("KPI (heatmap)", kpis_daily, key="h", label_visibility="collapsed")
+        st.plotly_chart(make_heatmap(view, sel_h, d0, d1), use_container_width=True,
+                        config={"displayModeBar": False})
 
-    # ── KPI DETAIL TABLE ─────────────────────────────────────
+    # ── DETAIL TABLE ─────────────────────────────────────────
     st.markdown('<div class="section-title">KPI Detail Table</div>', unsafe_allow_html=True)
-
-    table_rows = ""
-    for _, kpi_row in display_df.iterrows():
-        score = score_kpi(kpi_row["kpi_name"], kpi_row["actual"])
-        _, status_label, color, badge_class = status_from_score(score)
-        display_val  = fmt_value(kpi_row["kpi_name"], kpi_row["actual"])
-        baseline_val = fmt_value(kpi_row["kpi_name"], kpi_row["baseline"])
-        crit = kpi_row["criteria"]
-        crit_color = CRITERIA_COLORS.get(crit, "#4e5870")
-
-        table_rows += f"""
-        <tr>
-          <td><span style="color:{crit_color};font-size:10px">{crit}</span></td>
-          <td>{kpi_row['kpi_name']}</td>
-          <td>{baseline_val}</td>
-          <td>{kpi_row['target']}</td>
-          <td style="color:{color};font-weight:600">{display_val}</td>
-          <td><span class="kpi-badge {badge_class}">{status_label}</span></td>
-        </tr>"""
-
-    st.markdown(f"""
-    <div class="kpi-table-wrap">
-    <table class="kpi-table">
-      <thead><tr>
-        <th>Criteria</th><th>KPI</th><th>Baseline</th>
-        <th>Target</th><th>Actual</th><th>Status</th>
-      </tr></thead>
-      <tbody>{table_rows}</tbody>
-    </table>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── FOOTER ───────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
+    tbody = ""
+    for _, r in view.iterrows():
+        sc            = score(r["kpi_name"], r["actual"])
+        blabel, bcol, bcls = badge(sc)
+        ccol = CRITERIA_COLORS.get(r["criteria"], "#4e5870")
+        tbody += (
+            f"<tr>"
+            f"<td><span style='color:{ccol};font-size:10px'>{r['criteria']}</span></td>"
+            f"<td>{r['kpi_name']}</td>"
+            f"<td>{fmt(r['kpi_name'], r['baseline'])}</td>"
+            f"<td>{r['target']}</td>"
+            f"<td style='color:{bcol};font-weight:600'>{fmt(r['kpi_name'], r['actual'])}</td>"
+            f"<td><span class='kpi-badge {bcls}'>{blabel}</span></td>"
+            f"</tr>"
+        )
     st.markdown(
-        '<p style="text-align:center;font-size:11px;color:#4e5870">'
-        'AKIJ Resource Production Planning KPI Intelligence &nbsp;|&nbsp; '
-        ' Created By: Md. Ariful Islam (UFLDP Management Trainee Officer - Operations)  &nbsp;|&nbsp; '
-        'Built for Operations Planning</p>',
+        f"<div class='kpi-table-wrap'><table class='kpi-table'>"
+        f"<thead><tr><th>Criteria</th><th>KPI</th><th>Baseline</th>"
+        f"<th>Target</th><th>Actual</th><th>Status</th></tr></thead>"
+        f"<tbody>{tbody}</tbody></table></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<br><p style='text-align:center;font-size:11px;color:#4e5870'>"
+        "AKIJ Resource · Production Planning KPI Intelligence · Google Sheets Live</p>",
         unsafe_allow_html=True,
     )
 

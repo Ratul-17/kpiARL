@@ -874,7 +874,7 @@ def main():
     st.markdown(
         '<p style="text-align:center;font-size:11px;color:#4e5870">'
         'AKIJ Resource Production Planning KPI Intelligence &nbsp;|&nbsp; '
-        'Data Source: Google Sheets (Live) &nbsp;|&nbsp; '
+        'Created By: Md. Ariful Islam (UFLDP Management Trainee Officer - Operations) &nbsp;|&nbsp; '
         'Built for Operations Planning</p>',
         unsafe_allow_html=True,
     )

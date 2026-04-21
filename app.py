@@ -1,8 +1,8 @@
 """
 AKIJ Resource — Production Planning KPI Dashboard
-app.py  v4  —  clean full rewrite
+app.py  v5  BUILD:20260421
+  • Baseline fallback fixed (NaN string bug resolved)
   • Dark / Light theme toggle
-  • Correct % formatting (GViz CSV "11.83%" → safe_float → 0.1183 → fmt → "11.8%")
   • BDT & Hours KPIs never ×100
   • Baseline fallback cards when actual has sheet formula errors (#REF! / #DIV/0!)
   • Changeover Time baseline shown as raw minutes (not ×100)
@@ -657,7 +657,8 @@ def main():
         t = T()
         st.markdown(
             f"<p style='font-size:10px;color:{t['text_muted']};text-align:center;margin-top:16px'>"
-            "AKIJ Resource · Production Planning<br>KPI Intelligence · Live Google Sheets</p>",
+            "AKIJ Resource · Production Planning<br>KPI Intelligence · Live Google Sheets<br>"
+            "<b style='color:#4F8FFF'>v5 BUILD:20260421</b></p>",
             unsafe_allow_html=True,
         )
 
@@ -864,7 +865,7 @@ def main():
     )
     st.markdown(
         f"<br><p style='text-align:center;font-size:11px;color:{t['text_muted']}'>"
-        "AKIJ Resource · Production Planning KPI Intelligence. Created by : Md. Ariful Islam (MTO - Operations) .</p>",
+        "AKIJ Resource · Production Planning KPI Intelligence · Google Sheets Live</p>",
         unsafe_allow_html=True,
     )
 

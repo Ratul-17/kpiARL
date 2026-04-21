@@ -98,41 +98,43 @@ def safe_float(v) -> "float | None":
     """
     Parse any cell value to a float in natural units.
 
-    Handles all formats GViz CSV can send:
+    Handles all formats GViz CSV / pandas can send:
       "11.83%"          → 0.1183   (GViz % suffix → divide by 100)
       "226117.4444"     → 226117.4444
       "=196941*31/27"   → 226117.4444  (simple arithmetic formula → eval)
       "=IFERROR(__xludf.DUMMYFUNCTION(...),0.8299)" → 0.8299  (APFIL pattern)
-      "#REF!" / "#DIV/0!" etc → None
+      "#REF!" / "#DIV/0!" / "NaN" / "" etc → None
     """
     if v is None:
         return None
+    # Handle actual float NaN passed directly
+    if isinstance(v, float) and np.isnan(v):
+        return None
     s = str(v).strip()
-    if not s or s in {
-        "", "nan", "NaT", "None",
-        "#REF!", "#DIV/0!", "#VALUE!", "#N/A", "#NAME?", "#NULL!",
-        "N/A", "-",
+    if not s or s.lower() in {
+        "", "nan", "nat", "none",
+        "#ref!", "#div/0!", "#value!", "#n/a", "#name?", "#null!",
+        "n/a", "-",
     }:
         return None
 
-    # ── Handle Excel formula strings GViz sends as-is ──────────────────────
+    # ── Excel formula strings GViz sends as-is ─────────────────────────────
     if s.startswith("="):
-        # Pattern: =IFERROR(__xludf.DUMMYFUNCTION("COMPUTED_VALUE"), fallback_number)
-        # Extract the fallback number after the last comma
+        # =IFERROR(__xludf.DUMMYFUNCTION("COMPUTED_VALUE"), fallback_number)
         iferr = re.search(r',\s*([-\d\.eE+]+)\s*\)\s*$', s)
         if iferr:
             try:
                 return float(iferr.group(1))
             except ValueError:
                 pass
-        # Pattern: simple arithmetic like =196941*31/27 or =27/30
+        # Simple arithmetic: =196941*31/27  or  =27/30
         expr = s[1:].strip()
         if re.match(r'^[\d\s\+\-\*/\.\(\)]+$', expr):
             try:
-                return float(eval(expr))   # noqa: S307 — safe: only digits+operators
+                return float(eval(expr))   # noqa: S307 — safe: digits+operators only
             except Exception:
                 pass
-        return None   # Complex formulas we can't evaluate
+        return None
 
     has_pct = s.endswith("%")
     clean   = s.replace("%", "").replace(",", "").strip()
@@ -140,6 +142,11 @@ def safe_float(v) -> "float | None":
         num = float(clean)
     except ValueError:
         return None
+
+    # Reject NaN/Inf that slipped through float()
+    if np.isnan(num) or np.isinf(num):
+        return None
+
     return num / 100.0 if has_pct else num
 
 

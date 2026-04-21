@@ -864,7 +864,7 @@ def main():
     )
     st.markdown(
         f"<br><p style='text-align:center;font-size:11px;color:{t['text_muted']}'>"
-        "AKIJ Resource · Production Planning KPI Intelligence · </p>",
+        "AKIJ Resource · Production Planning KPI Intelligence. Created by : Md. Ariful Islam (MTO - Operations) .</p>",
         unsafe_allow_html=True,
     )
 

@@ -12,6 +12,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import re
 from datetime import datetime, date
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,29 +98,48 @@ def safe_float(v) -> "float | None":
     """
     Parse any cell value to a float in natural units.
 
-    Google Sheets GViz CSV exports percent-formatted cells as "11.83%".
-    We detect the % suffix and divide by 100 → 0.1183 (decimal form).
-    BDT / Hours cells have no % suffix → returned as-is (1507935, 17.3).
-
-    Special: baseline for "Changeover Time Reduction (%)" = raw minutes (22.0).
-    That has no % suffix so it's returned as 22.0 — fmt_val handles display.
+    Handles all formats GViz CSV can send:
+      "11.83%"          → 0.1183   (GViz % suffix → divide by 100)
+      "226117.4444"     → 226117.4444
+      "=196941*31/27"   → 226117.4444  (simple arithmetic formula → eval)
+      "=IFERROR(__xludf.DUMMYFUNCTION(...),0.8299)" → 0.8299  (APFIL pattern)
+      "#REF!" / "#DIV/0!" etc → None
     """
     if v is None:
         return None
     s = str(v).strip()
-    # Reject all formula errors and blanks
     if not s or s in {
         "", "nan", "NaT", "None",
         "#REF!", "#DIV/0!", "#VALUE!", "#N/A", "#NAME?", "#NULL!",
         "N/A", "-",
     }:
         return None
+
+    # ── Handle Excel formula strings GViz sends as-is ──────────────────────
+    if s.startswith("="):
+        # Pattern: =IFERROR(__xludf.DUMMYFUNCTION("COMPUTED_VALUE"), fallback_number)
+        # Extract the fallback number after the last comma
+        iferr = re.search(r',\s*([-\d\.eE+]+)\s*\)\s*$', s)
+        if iferr:
+            try:
+                return float(iferr.group(1))
+            except ValueError:
+                pass
+        # Pattern: simple arithmetic like =196941*31/27 or =27/30
+        expr = s[1:].strip()
+        if re.match(r'^[\d\s\+\-\*/\.\(\)]+$', expr):
+            try:
+                return float(eval(expr))   # noqa: S307 — safe: only digits+operators
+            except Exception:
+                pass
+        return None   # Complex formulas we can't evaluate
+
     has_pct = s.endswith("%")
-    clean = s.replace("%", "").replace(",", "").strip()
+    clean   = s.replace("%", "").replace(",", "").strip()
     try:
         num = float(clean)
     except ValueError:
-        return None   # text like "Changeover occurs within seconds…"
+        return None
     return num / 100.0 if has_pct else num
 
 

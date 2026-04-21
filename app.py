@@ -394,7 +394,8 @@ header[data-testid="stHeader"]{{background:transparent}}
 .kpi-card:hover{{border-color:{t["border_hover"]}}}
 .kpi-card-cat{{font-size:10px;color:{t["text_muted"]};text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}}
 .kpi-card-val{{font-family:'Syne',sans-serif;font-weight:700;font-size:26px;line-height:1;margin-bottom:6px}}
-.kpi-card-name{{font-size:11.5px;color:{t["text_secondary"]};margin-bottom:8px;line-height:1.3}}
+.kpi-card-name{{font-size:11.5px;color:{t["text_secondary"]};margin-bottom:4px;line-height:1.3}}
+.kpi-card-sub{{font-size:10px;color:{t["text_muted"]};margin-bottom:6px;font-style:italic}}
 .kpi-badge{{display:inline-block;padding:2px 10px;border-radius:99px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}}
 .badge-good{{background:#22d3a520;color:#22d3a5}}
 .badge-warn{{background:#f59e0b20;color:#f59e0b}}
@@ -706,20 +707,54 @@ def main():
 
     # ── KPI SCORE CARDS ──────────────────────────────────────
     st.markdown('<div class="section-title">KPI Scorecard</div>', unsafe_allow_html=True)
+
+    # Count how many have no actual data (sheet formula errors)
+    no_data_count = sum(1 for _, r in view.iterrows() if r["actual"] is None or
+                        (isinstance(r["actual"], float) and np.isnan(r["actual"])))
+    if no_data_count > 0:
+        st.markdown(
+            f"<p style='font-size:11.5px;color:{t['text_muted']};margin-bottom:10px;'>"
+            f"ℹ️  <b>{no_data_count} KPI(s)</b> show baseline only — their Actual values contain "
+            f"formula errors (#REF! / #DIV/0!) in the Google Sheet. "
+            f"Fix the source sheet formulas to populate Actual data.</p>",
+            unsafe_allow_html=True,
+        )
+
     COLS = 4
     for i in range(0, len(view), COLS):
         chunk = view.iloc[i:i+COLS]
         cols  = st.columns(len(chunk))
         for col, (_, r) in zip(cols, chunk.iterrows()):
-            sc               = score(r["kpi_name"], r["actual"])
-            blabel, bcol, bcls = badge(sc)
-            val_str          = fmt(r["kpi_name"], r["actual"])
+            actual   = r["actual"]
+            baseline = r["baseline"]
+            has_actual = actual is not None and not (isinstance(actual, float) and np.isnan(actual))
+
+            if has_actual:
+                sc                 = score(r["kpi_name"], actual)
+                blabel, bcol, bcls = badge(sc)
+                val_str            = fmt(r["kpi_name"], actual)
+                base_str           = fmt(r["kpi_name"], baseline) if baseline is not None else "—"
+                sub_line = f'<div class="kpi-card-sub">Baseline: {base_str}</div>'
+            else:
+                # No actual — show baseline as reference if available
+                bcol  = t["text_muted"]
+                bcls  = "badge-na"
+                blabel = "No Data"
+                if baseline is not None and not (isinstance(baseline, float) and np.isnan(baseline)):
+                    val_str  = fmt(r["kpi_name"], baseline)
+                    sub_line = f'<div class="kpi-card-sub" style="color:{t["text_muted"]}">Baseline (sheet error on Actual)</div>'
+                    bcol     = t["text_secondary"]   # softer colour for baseline-only cards
+                else:
+                    val_str  = "—"
+                    sub_line = f'<div class="kpi-card-sub" style="color:{t["text_muted"]}">No data in sheet</div>'
+
             with col:
                 st.markdown(f"""
                 <div class="kpi-card" style="border-top-color:{bcol}">
                   <div class="kpi-card-cat">{r['criteria'][:26]}</div>
                   <div class="kpi-card-val" style="color:{bcol}">{val_str}</div>
                   <div class="kpi-card-name">{r['kpi_name']}</div>
+                  {sub_line}
                   <span class="kpi-badge {bcls}">{blabel}</span>
                 </div>
                 """, unsafe_allow_html=True)
@@ -771,16 +806,33 @@ def main():
                 unsafe_allow_html=True)
     tbody = ""
     for _, r in view.iterrows():
-        sc               = score(r["kpi_name"], r["actual"])
+        actual   = r["actual"]
+        baseline = r["baseline"]
+        has_actual = actual is not None and not (isinstance(actual, float) and np.isnan(actual))
+
+        sc                 = score(r["kpi_name"], actual) if has_actual else None
         blabel, bcol, bcls = badge(sc)
-        ccol = CRITERIA_COLORS.get(r["criteria"], t["text_muted"])
+        ccol               = CRITERIA_COLORS.get(r["criteria"], t["text_muted"])
+
+        if has_actual:
+            actual_display = f"<span style='color:{bcol};font-weight:600'>{fmt(r['kpi_name'], actual)}</span>"
+        elif baseline is not None and not (isinstance(baseline, float) and np.isnan(baseline)):
+            actual_display = (
+                f"<span style='color:{t['text_muted']};font-size:11px'>"
+                f"{fmt(r['kpi_name'], baseline)} <em>(baseline — sheet error on Actual)</em></span>"
+            )
+            blabel = "No Data"; bcls = "badge-na"
+        else:
+            actual_display = f"<span style='color:{t['text_muted']}'>—</span>"
+            blabel = "No Data"; bcls = "badge-na"
+
         tbody += (
             f"<tr>"
             f"<td><span style='color:{ccol};font-size:10px'>{r['criteria']}</span></td>"
             f"<td>{r['kpi_name']}</td>"
-            f"<td>{fmt(r['kpi_name'], r['baseline'])}</td>"
+            f"<td>{fmt(r['kpi_name'], baseline)}</td>"
             f"<td>{r['target']}</td>"
-            f"<td style='color:{bcol};font-weight:600'>{fmt(r['kpi_name'], r['actual'])}</td>"
+            f"<td>{actual_display}</td>"
             f"<td><span class='kpi-badge {bcls}'>{blabel}</span></td>"
             f"</tr>"
         )
@@ -793,7 +845,7 @@ def main():
     )
     st.markdown(
         f"<br><p style='text-align:center;font-size:11px;color:{t['text_muted']}'>"
-        "AKIJ Resource · Production Planning KPI Intelligence · Created By : Md. Ariful Islam Ratul (MTO - Operations)</p>",
+        "AKIJ Resource · Production Planning KPI Intelligence ·Created By : Md. Ariful Islam - MTO (operations) </p>",
         unsafe_allow_html=True,
     )
 

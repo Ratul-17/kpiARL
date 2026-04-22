@@ -31,7 +31,7 @@ SBU_CONFIG = {
     "AEL (Rice)":  {"full_name": "Akij Essential Rice Mill",                    "sheet": "AEL (Rice)"},
     "APFIL":       {"full_name": "Akij Poly Fibre Industries Ltd.",             "sheet": "APFIL"},
     "ABSL":        {"full_name": "Akij Building Solutions Ltd.",                "sheet": "ABSL"},
-    "ARMCL-01":    {"full_name": "Akij Ready Mix Concrete Ltd. - Narayanganj", "sheet": "ARMCL - 01"},
+    "ARMCL-01":    {"full_name": "Akij Ready Mix Concrete Ltd. - Dhour", "sheet": "ARMCL - 01"},
 }
 
 CRITERIA_COLORS = {

@@ -550,7 +550,7 @@ def main():
             f"<p style='font-size:10px;color:{t['t3']};text-align:center;margin-top:16px'>"
             "AKIJ Resource · Production Planning<br>"
             "KPI Intelligence · Live Google Sheets<br>"
-            "<b style='color:#4F8FFF'>v6</b></p>",
+            "<b style='color:#4F8FFF'>Created By: Md. Ariful Islam</b></p>",
             unsafe_allow_html=True,
         )
 

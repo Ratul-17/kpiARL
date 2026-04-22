@@ -564,7 +564,7 @@ def main():
         <div class="logo">AR</div>
         <div>
           <div class="brand">AKIJ Resource</div>
-          <div class="brand-sub">Production Planning KPI Intelligence</div>
+          <div class="brand-sub">Production Planning KPI Intelligence. Developed by: Md. Ariful Islam (MTO - Operations Planning) </div>
         </div>
       </div>
       <div style="text-align:right">
